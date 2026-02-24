@@ -143,6 +143,31 @@ Step 3 is now implemented with a continuous background worker:
 - `GET /api/control/worker` (user auth required)
 - `POST /api/control/worker/tick` (user auth required)
 
+## Step 4 (host agent daemon)
+
+Step 4 adds a runnable host daemon at `server/host-agent.js`:
+
+- Registers itself to `/api/hosts/register` on startup
+- Sends periodic heartbeats to `/api/hosts/:hostId/heartbeat`
+- Marks host offline on `SIGINT`/`SIGTERM` via `/api/hosts/:hostId/offline`
+- Uses environment variables so each VPS node can run its own unique host identity
+
+### Run host agent
+
+```bash
+npm run host:agent
+```
+
+### Host agent environment variables
+
+- `NEXFORCE_API_BASE_URL` (default: `http://localhost:5500`)
+- `NEXFORCE_HOST_KEY` (default: `nexforce-host-key`)
+- `NEXFORCE_AGENT_HOST_ID` (default: `host-<pid>`)
+- `NEXFORCE_AGENT_HOST_NAME` (default: `NexForce Agent <hostId>`)
+- `NEXFORCE_AGENT_REGION` (default: `local`)
+- `NEXFORCE_AGENT_CAPACITY` (default: `1`)
+- `NEXFORCE_AGENT_HEARTBEAT_MS` (default: `15000`)
+
 ### Run Step 1 backend locally
 
 ```bash
