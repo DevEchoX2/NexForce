@@ -6,6 +6,7 @@ const { ensureDb, readDb, writeDb } = require("./storage");
 const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
+const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -79,6 +80,21 @@ const canAccessGame = (userPlan, gameMinPlan) => {
   return (planRank[userPlan] ?? 0) >= (planRank[gameMinPlan] ?? 0);
 };
 
+const getPlanRank = (plan) => planRank[plan] ?? 0;
+
+const isHostFresh = (host) => {
+  if (host.status !== "online") {
+    return false;
+  }
+
+  if (!host.lastHeartbeatAt) {
+    return true;
+  }
+
+  const age = Date.now() - new Date(host.lastHeartbeatAt).getTime();
+  return age <= HOST_HEARTBEAT_TIMEOUT_MS;
+};
+
 const getUserSettings = (db, userId) => {
   return (
     db.settingsByUserId[userId] || {
@@ -89,30 +105,93 @@ const getUserSettings = (db, userId) => {
   );
 };
 
-const promoteQueue = (db) => {
-  const host = db.gameHosts.find((entry) => entry.status === "online" && entry.activeSessions < entry.capacity);
-  if (!host) {
-    return;
-  }
-
-  const next = db.sessionQueue.shift();
-  if (!next) {
-    return;
-  }
-
-  const session = db.sessions.find((entry) => entry.id === next.sessionId);
-  if (!session) {
-    return;
-  }
-
-  session.status = "active";
-  session.hostId = host.id;
-  session.startedAt = new Date().toISOString();
-  host.activeSessions += 1;
+const assignConnection = (session) => {
   session.connection = {
     mode: "placeholder",
     playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`
   };
+};
+
+const reconcileHostsAndSessions = (db) => {
+  const now = new Date().toISOString();
+  const hostById = new Map(db.gameHosts.map((host) => [host.id, host]));
+
+  db.gameHosts.forEach((host) => {
+    if (!isHostFresh(host)) {
+      host.status = "offline";
+    }
+    host.activeSessions = 0;
+  });
+
+  db.sessions.forEach((session) => {
+    if (session.status !== "active") {
+      return;
+    }
+
+    const host = hostById.get(session.hostId);
+    if (!host || host.status !== "online") {
+      session.status = "ended";
+      session.endedAt = now;
+      session.endReason = "host_offline";
+      session.hostId = null;
+      return;
+    }
+
+    host.activeSessions += 1;
+  });
+};
+
+const getAvailableHost = (db) => {
+  return db.gameHosts
+    .filter((host) => host.status === "online" && host.activeSessions < host.capacity)
+    .sort((left, right) => {
+      const leftLoad = left.activeSessions / left.capacity;
+      const rightLoad = right.activeSessions / right.capacity;
+      if (leftLoad !== rightLoad) {
+        return leftLoad - rightLoad;
+      }
+      const leftHeartbeat = new Date(left.lastHeartbeatAt || 0).getTime();
+      const rightHeartbeat = new Date(right.lastHeartbeatAt || 0).getTime();
+      return rightHeartbeat - leftHeartbeat;
+    })[0];
+};
+
+const sortQueue = (db) => {
+  db.sessionQueue.sort((left, right) => {
+    const rankDelta = getPlanRank(right.plan) - getPlanRank(left.plan);
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+    return new Date(left.requestedAt).getTime() - new Date(right.requestedAt).getTime();
+  });
+};
+
+const promoteQueue = (db) => {
+  reconcileHostsAndSessions(db);
+  sortQueue(db);
+
+  while (db.sessionQueue.length > 0) {
+    const host = getAvailableHost(db);
+    if (!host) {
+      break;
+    }
+
+    const next = db.sessionQueue.shift();
+    if (!next) {
+      break;
+    }
+
+    const session = db.sessions.find((entry) => entry.id === next.sessionId);
+    if (!session || session.status !== "queued") {
+      continue;
+    }
+
+    session.status = "active";
+    session.hostId = host.id;
+    session.startedAt = new Date().toISOString();
+    assignConnection(session);
+    host.activeSessions += 1;
+  }
 };
 
 app.get("/api/health", (_req, res) => {
@@ -131,6 +210,8 @@ app.get("/api/plans", (_req, res) => {
 
 app.get("/api/hosts", authMiddleware, (_req, res) => {
   const db = readDb();
+  promoteQueue(db);
+  writeDb(db);
   res.json(db.gameHosts);
 });
 
@@ -149,6 +230,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     existing.capacity = Number(capacity) > 0 ? Number(capacity) : 1;
     existing.status = "online";
     existing.lastHeartbeatAt = new Date().toISOString();
+    promoteQueue(db);
     writeDb(db);
     return res.json(existing);
   }
@@ -164,6 +246,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
   };
 
   db.gameHosts.push(host);
+  promoteQueue(db);
   writeDb(db);
   res.json(host);
 });
@@ -179,6 +262,7 @@ app.post("/api/hosts/:hostId/heartbeat", hostAuthMiddleware, (req, res) => {
 
   host.status = "online";
   host.lastHeartbeatAt = new Date().toISOString();
+  promoteQueue(db);
   writeDb(db);
 
   res.json({ success: true, host });
@@ -194,12 +278,15 @@ app.post("/api/hosts/:hostId/offline", hostAuthMiddleware, (req, res) => {
   }
 
   host.status = "offline";
+  promoteQueue(db);
   writeDb(db);
   res.json({ success: true, host });
 });
 
 app.get("/api/control/summary", authMiddleware, (req, res) => {
   const db = readDb();
+  promoteQueue(db);
+  writeDb(db);
   const userSettings = getUserSettings(db, req.auth.user.id);
   const queuePosition = db.sessionQueue.findIndex((entry) => entry.userId === req.auth.user.id);
 
@@ -335,20 +422,24 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
     requestedAt: new Date().toISOString(),
     startedAt: host ? new Date().toISOString() : null,
     endedAt: null,
-    connection: {
-      mode: "placeholder",
-      playUrl: `/play.html?game=${encodeURIComponent(game.title)}`
-    }
+    connection: null
   };
 
   db.sessions.push(session);
 
   if (host) {
+    assignConnection(session);
     host.activeSessions += 1;
   } else {
-    db.sessionQueue.push({ sessionId: session.id, userId: req.auth.user.id, requestedAt: session.requestedAt });
+    db.sessionQueue.push({
+      sessionId: session.id,
+      userId: req.auth.user.id,
+      requestedAt: session.requestedAt,
+      plan: session.plan
+    });
   }
 
+  promoteQueue(db);
   writeDb(db);
 
   const queuePosition =
@@ -361,6 +452,8 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
 
 app.get("/api/sessions/me", authMiddleware, (req, res) => {
   const db = readDb();
+  promoteQueue(db);
+  writeDb(db);
   const sessions = db.sessions.filter(
     (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active")
   );

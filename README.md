@@ -121,6 +121,13 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 
 Use header: `x-host-key: nexforce-host-key` (or override via `NEXFORCE_HOST_KEY`).
 
+Step 2 currently includes:
+
+- Host register/online/offline and heartbeat updates
+- Host timeout auto-offline (`HOST_HEARTBEAT_TIMEOUT_MS`, default 45000)
+- Queue promotion by plan priority (`ultimate` > `performance` > `free`) then FIFO within same tier
+- Basic host load-aware assignment (lowest utilization first)
+
 ### Run Step 1 backend locally
 
 ```bash
