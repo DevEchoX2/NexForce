@@ -8,10 +8,12 @@ const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
 
 const defaultAllowedOrigins = [
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
   "https://devechox2.github.io",
   "https://wafflev1.me",
-  "http://wafflev1.me",
-  "https://nexforce-production.up.railway.app"
+  "https://www.wafflev1.me",
+  "http://wafflev1.me"
 ];
 
 const allowedOrigins = (process.env.CORS_ORIGINS || "")

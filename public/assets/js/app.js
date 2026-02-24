@@ -18,12 +18,7 @@ const resolveApiBase = () => {
     return String(window.NEXFORCE_API_BASE).replace(/\/$/, "");
   }
 
-  const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1") {
-    return "/api";
-  }
-
-  return "https://nexforce-production.up.railway.app/api";
+  return "/api";
 };
 
 const API_BASE = resolveApiBase();

@@ -100,19 +100,65 @@ Open:
 
 `http://localhost:5500`
 
-## If you cannot edit DNS
+## VPS deployment (no Railway)
 
-You can still run production with a split setup:
+This project is now configured for VPS hosting with same-origin API calls (`/api`).
 
-- Frontend on GitHub Pages/custom static host
-- Backend API on Railway
+### 1) Server setup
 
-The frontend now auto-uses:
+- Install Node.js 20+
+- Clone repo and install deps:
 
-- Localhost: `http://localhost:5500/api`
-- Non-local hosts: `https://nexforce-production.up.railway.app/api`
+```bash
+git clone https://github.com/DevEchoX2/NexForce.git
+cd NexForce
+npm install
+npm run build:css
+```
 
-So even without DNS control over `wafflev1.me`, the app can call the Railway backend directly.
+### 2) Run with PM2
+
+```bash
+npm install -g pm2
+pm2 start npm --name nexforce -- run start
+pm2 save
+pm2 startup
+```
+
+### 3) Nginx reverse proxy
+
+Use Nginx to route your domain to Node app on `localhost:5500`:
+
+```nginx
+server {
+		listen 80;
+		server_name wafflev1.me www.wafflev1.me;
+
+		location / {
+				proxy_pass http://127.0.0.1:5500;
+				proxy_http_version 1.1;
+				proxy_set_header Host $host;
+				proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+				proxy_set_header X-Forwarded-Proto $scheme;
+		}
+}
+```
+
+Then enable HTTPS:
+
+```bash
+sudo certbot --nginx -d wafflev1.me -d www.wafflev1.me
+```
+
+### 4) Optional separate API host
+
+If frontend and backend are on different domains, set in a script tag before `app.js`:
+
+```html
+<script>
+	window.NEXFORCE_API_BASE = "https://api.yourdomain.com/api";
+</script>
+```
 
 ## Notes
 
