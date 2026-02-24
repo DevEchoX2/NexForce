@@ -13,6 +13,8 @@ const defaultDb = {
     }
   ],
   authSessions: [],
+  linkedAccountsByUserId: {},
+  launchTickets: [],
   settingsByUserId: {
     "demo-user-001": {
       preferredDevice: "PC",
@@ -182,6 +184,14 @@ const normalizeDb = (data) => {
       ? normalized.sessions.filter((entry) => entry && typeof entry.token === "string")
       : [];
     normalized.authSessions = legacyAuthSessions;
+  }
+
+  if (!normalized.linkedAccountsByUserId || typeof normalized.linkedAccountsByUserId !== "object") {
+    normalized.linkedAccountsByUserId = {};
+  }
+
+  if (!Array.isArray(normalized.launchTickets)) {
+    normalized.launchTickets = [];
   }
 
   if (!Array.isArray(normalized.sessions)) {

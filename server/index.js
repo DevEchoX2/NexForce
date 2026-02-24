@@ -26,6 +26,26 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .concat(defaultAllowedOrigins);
 
 const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
+const INTEGRATION_TICKET_TTL_SEC = Number(process.env.INTEGRATION_TICKET_TTL_SEC || 300);
+const integrationProviders = {
+  epic: {
+    id: "epic",
+    name: "Epic Games",
+    games: ["fortnite"],
+    launchUrlTemplate: "https://launcher.epicgames.com"
+  },
+  roblox: {
+    id: "roblox",
+    name: "Roblox",
+    games: ["roblox"],
+    launchUrlTemplate: "https://www.roblox.com/games"
+  }
+};
+
+const gameProviderBySlug = {
+  fortnite: "epic",
+  roblox: "roblox"
+};
 const defaultSchedulerPolicy = {
   maxActiveSessionsPerUser: 1,
   maxQueuedSessionsPerUser: 1,
@@ -180,6 +200,33 @@ const recordTimeout = (db, session) => {
     plan: session.plan,
     hostId: session.hostId
   });
+};
+
+const normalizeProviderId = (value) => {
+  const providerId = String(value || "").trim().toLowerCase();
+  return integrationProviders[providerId] ? providerId : null;
+};
+
+const getLinkedAccounts = (db, userId) => {
+  if (!db.linkedAccountsByUserId || typeof db.linkedAccountsByUserId !== "object") {
+    db.linkedAccountsByUserId = {};
+  }
+
+  if (!db.linkedAccountsByUserId[userId] || typeof db.linkedAccountsByUserId[userId] !== "object") {
+    db.linkedAccountsByUserId[userId] = {};
+  }
+
+  return db.linkedAccountsByUserId[userId];
+};
+
+const buildLaunchTicket = (payload) => {
+  const expiresAt = new Date(Date.now() + INTEGRATION_TICKET_TTL_SEC * 1000).toISOString();
+  return {
+    id: `lt_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+    issuedAt: new Date().toISOString(),
+    expiresAt,
+    ...payload
+  };
 };
 
 app.use(express.json());
@@ -897,6 +944,134 @@ app.post("/api/auth/logout", authMiddleware, (req, res) => {
 
 app.get("/api/auth/me", authMiddleware, (req, res) => {
   res.json({ user: req.auth.user });
+});
+
+app.get("/api/integrations/providers", authMiddleware, (_req, res) => {
+  res.json(Object.values(integrationProviders));
+});
+
+app.get("/api/integrations/accounts", authMiddleware, (req, res) => {
+  const db = readDb();
+  const linkedAccounts = getLinkedAccounts(db, req.auth.user.id);
+  res.json(linkedAccounts);
+});
+
+app.post("/api/integrations/:provider/link", authMiddleware, (req, res) => {
+  const providerId = normalizeProviderId(req.params.provider);
+  if (!providerId) {
+    return res.status(400).json({ error: "Unsupported provider" });
+  }
+
+  const { accountId, displayName = null } = req.body || {};
+  if (!accountId || typeof accountId !== "string") {
+    return res.status(400).json({ error: "accountId is required" });
+  }
+
+  const db = readDb();
+  const linkedAccounts = getLinkedAccounts(db, req.auth.user.id);
+  linkedAccounts[providerId] = {
+    provider: providerId,
+    accountId: accountId.trim(),
+    displayName: typeof displayName === "string" && displayName.trim() ? displayName.trim() : null,
+    linkedAt: new Date().toISOString()
+  };
+
+  appendSchedulerEvent(db, "integration_linked", {
+    userId: req.auth.user.id,
+    provider: providerId
+  });
+  writeDb(db);
+  res.json(linkedAccounts[providerId]);
+});
+
+app.delete("/api/integrations/:provider/unlink", authMiddleware, (req, res) => {
+  const providerId = normalizeProviderId(req.params.provider);
+  if (!providerId) {
+    return res.status(400).json({ error: "Unsupported provider" });
+  }
+
+  const db = readDb();
+  const linkedAccounts = getLinkedAccounts(db, req.auth.user.id);
+  delete linkedAccounts[providerId];
+
+  appendSchedulerEvent(db, "integration_unlinked", {
+    userId: req.auth.user.id,
+    provider: providerId
+  });
+  writeDb(db);
+  res.json({ success: true });
+});
+
+app.post("/api/launch/ticket", authMiddleware, (req, res) => {
+  const { gameSlug, sessionId = null } = req.body || {};
+  if (!gameSlug) {
+    return res.status(400).json({ error: "gameSlug is required" });
+  }
+
+  const db = readDb();
+  const game = db.games.find((entry) => entry.slug === gameSlug);
+  if (!game) {
+    return res.status(404).json({ error: "Game not found" });
+  }
+
+  const providerId = gameProviderBySlug[game.slug] || null;
+  const linkedAccounts = getLinkedAccounts(db, req.auth.user.id);
+  const providerAccount = providerId ? linkedAccounts[providerId] : null;
+
+  if (providerId && !providerAccount) {
+    appendSchedulerEvent(db, "launch_ticket_rejected", {
+      userId: req.auth.user.id,
+      gameSlug: game.slug,
+      reason: "provider_not_linked",
+      provider: providerId
+    });
+    writeDb(db);
+    return res.status(403).json({
+      error: "Provider account not linked",
+      provider: providerId
+    });
+  }
+
+  const activeSession = db.sessions.find(
+    (entry) =>
+      entry.userId === req.auth.user.id &&
+      entry.status === "active" &&
+      entry.gameSlug === game.slug &&
+      (!sessionId || entry.id === sessionId)
+  );
+
+  if (!activeSession) {
+    return res.status(404).json({ error: "No active session for game" });
+  }
+
+  const externalLaunchUrl = providerId
+    ? `${integrationProviders[providerId].launchUrlTemplate}?ticket=${encodeURIComponent(activeSession.id)}`
+    : `/play.html?game=${encodeURIComponent(game.title)}`;
+
+  const ticket = buildLaunchTicket({
+    userId: req.auth.user.id,
+    sessionId: activeSession.id,
+    gameSlug: game.slug,
+    provider: providerId,
+    providerAccountId: providerAccount?.accountId || null,
+    launchUrl: externalLaunchUrl
+  });
+
+  if (!Array.isArray(db.launchTickets)) {
+    db.launchTickets = [];
+  }
+  db.launchTickets.push(ticket);
+  db.launchTickets = db.launchTickets.slice(-500);
+
+  appendSchedulerEvent(db, "launch_ticket_issued", {
+    userId: req.auth.user.id,
+    sessionId: activeSession.id,
+    gameSlug: game.slug,
+    provider: providerId
+  });
+  writeDb(db);
+
+  res.json(ticket);
 });
 
 app.get("/api/profile/settings", authMiddleware, (req, res) => {

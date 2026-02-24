@@ -293,6 +293,23 @@ This closes the current implementation roadmap at Step 13.
 
 Running official Roblox/Fortnite cloud streams requires external proprietary platform integrations and licensing. Current implementation provides a real playable in-browser runtime so launches are functional while those external integrations are pending.
 
+## Integration phase started
+
+Backend now includes real integration scaffolding to connect external game providers:
+
+- `GET /api/integrations/providers`
+- `GET /api/integrations/accounts`
+- `POST /api/integrations/:provider/link`
+- `DELETE /api/integrations/:provider/unlink`
+- `POST /api/launch/ticket`
+
+Current provider mapping:
+
+- `fortnite` → `epic`
+- `roblox` → `roblox`
+
+`POST /api/launch/ticket` now enforces linked provider accounts for mapped games and returns a short-lived launch ticket payload with `launchUrl`.
+
 ### Step 10 host-agent environment variables
 
 - `NEXFORCE_AGENT_FREE_RESERVED_MIN` (default: `0`)
