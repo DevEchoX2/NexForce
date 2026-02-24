@@ -166,7 +166,7 @@ export const initLaunchModal = () => {
     trackedSessionId = null;
   };
 
-  const pollUntilActive = async (gameSlug) => {
+  const pollUntilActive = async () => {
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const sessions = await apiRequest("/api/sessions/me", { auth: true });
@@ -209,6 +209,26 @@ export const initLaunchModal = () => {
     const gameName = appState.activeGame || "Fortnite";
     const gameSlug = slugFromGame(gameName);
 
+    const launchLocalRuntime = (message = "Launching local runtime...") => {
+      if (statusEl) {
+        statusEl.textContent = message;
+      }
+      if (queueEl) {
+        queueEl.textContent = "0";
+      }
+      if (etaEl) {
+        etaEl.textContent = "Launching...";
+      }
+
+      if (!launchRedirected) {
+        launchRedirected = true;
+        const game = encodeURIComponent(gameName);
+        setTimeout(() => {
+          window.location.href = `./play.html?game=${game}`;
+        }, 500);
+      }
+    };
+
     const ensureSignedIn = async () => {
       if (appState.authToken) {
         return;
@@ -239,9 +259,10 @@ export const initLaunchModal = () => {
         if (etaEl && requestResult.queuePosition) {
           etaEl.textContent = `${Math.max(1, requestResult.queuePosition)} min`;
         }
-        const resolved = await pollUntilActive(gameSlug);
+        const resolved = await pollUntilActive();
         if (!resolved) {
-          throw new Error("Queue timed out. Try again.");
+          launchLocalRuntime("Queue took too long. Starting local runtime...");
+          return;
         }
         activeSession = resolved;
       }
@@ -266,12 +287,13 @@ export const initLaunchModal = () => {
         window.location.href = `./play.html?game=${game}&ticket=${ticketId}`;
       }
     } catch (error) {
-      if (statusEl) {
-        statusEl.textContent = error.message || "Launch failed";
+      const statusCode = Number(error?.status || 0);
+      if (statusCode === 403) {
+        launchLocalRuntime("Provider link required. Starting local runtime...");
+        return;
       }
-      if (etaEl) {
-        etaEl.textContent = "Retry";
-      }
+
+      launchLocalRuntime("Launch service unavailable. Starting local runtime...");
       console.error(error);
     } finally {
       stopTracking();
