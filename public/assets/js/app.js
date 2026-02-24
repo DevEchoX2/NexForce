@@ -1,7 +1,10 @@
 const STORAGE_KEYS = {
   billingCycle: "nexforce.billingCycle",
+  selectedPlan: "nexforce.selectedPlan",
   recentGame: "nexforce.recentGame",
-  authToken: "nexforce.authToken"
+  authUser: "nexforce.authUser",
+  preferredDevice: "nexforce.preferredDevice",
+  networkProfile: "nexforce.networkProfile"
 };
 
 const getStoredValue = (key, fallbackValue) => {
@@ -13,28 +16,18 @@ const setStoredValue = (key, value) => {
   localStorage.setItem(key, value);
 };
 
-const resolveApiBase = () => {
-  if (window.NEXFORCE_API_BASE) {
-    return String(window.NEXFORCE_API_BASE).replace(/\/$/, "");
-  }
-
-  return "/api";
-};
-
-const API_BASE = resolveApiBase();
-
 export const appState = {
-  user: null,
-  settings: {
-    preferredDevice: "PC",
-    networkProfile: "Balanced",
-    selectedPlan: "performance"
-  },
   get billingCycle() {
     return getStoredValue(STORAGE_KEYS.billingCycle, "monthly");
   },
   set billingCycle(value) {
     setStoredValue(STORAGE_KEYS.billingCycle, value);
+  },
+  get selectedPlan() {
+    return getStoredValue(STORAGE_KEYS.selectedPlan, "free");
+  },
+  set selectedPlan(value) {
+    setStoredValue(STORAGE_KEYS.selectedPlan, value);
   },
   get recentGame() {
     return getStoredValue(STORAGE_KEYS.recentGame, "Fortnite");
@@ -42,105 +35,45 @@ export const appState = {
   set recentGame(value) {
     setStoredValue(STORAGE_KEYS.recentGame, value);
   },
-  get authToken() {
-    return getStoredValue(STORAGE_KEYS.authToken, "");
+  get authUser() {
+    const raw = getStoredValue(STORAGE_KEYS.authUser, "");
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   },
-  set authToken(value) {
+  set authUser(value) {
     if (!value) {
-      localStorage.removeItem(STORAGE_KEYS.authToken);
+      localStorage.removeItem(STORAGE_KEYS.authUser);
       return;
     }
-    setStoredValue(STORAGE_KEYS.authToken, value);
+    setStoredValue(STORAGE_KEYS.authUser, JSON.stringify(value));
+  },
+  get preferredDevice() {
+    return getStoredValue(STORAGE_KEYS.preferredDevice, "PC");
+  },
+  set preferredDevice(value) {
+    setStoredValue(STORAGE_KEYS.preferredDevice, value);
+  },
+  get networkProfile() {
+    return getStoredValue(STORAGE_KEYS.networkProfile, "Balanced");
+  },
+  set networkProfile(value) {
+    setStoredValue(STORAGE_KEYS.networkProfile, value);
   }
 };
 
-const apiRequest = async (path, options = {}) => {
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {})
-  };
-
-  if (appState.authToken) {
-    headers.Authorization = `Bearer ${appState.authToken}`;
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers
-  });
-
-  const data = await response.json().catch(() => ({}));
+export const loadJson = async (path) => {
+  const response = await fetch(path);
   if (!response.ok) {
-    throw new Error(data.error || "Request failed");
+    throw new Error(`Failed to load ${path}`);
   }
-  return data;
+  return response.json();
 };
-
-export const getGames = async () => apiRequest("/games");
-export const getPlans = async () => apiRequest("/plans");
-
-export const refreshSession = async () => {
-  if (!appState.authToken) {
-    appState.user = null;
-    return null;
-  }
-
-  try {
-    const payload = await apiRequest("/auth/me");
-    appState.user = payload.user;
-    return payload.user;
-  } catch {
-    appState.authToken = "";
-    appState.user = null;
-    return null;
-  }
-};
-
-export const signInDemo = async () => {
-  const payload = await apiRequest("/auth/demo-login", { method: "POST" });
-  appState.authToken = payload.token;
-  appState.user = payload.user;
-  return payload.user;
-};
-
-export const signOut = async () => {
-  if (appState.authToken) {
-    try {
-      await apiRequest("/auth/logout", { method: "POST" });
-    } catch {
-      // noop
-    }
-  }
-
-  appState.authToken = "";
-  appState.user = null;
-};
-
-export const getProfileSettings = async () => {
-  const settings = await apiRequest("/profile/settings");
-  appState.settings = settings;
-  return settings;
-};
-
-export const updateProfileSettings = async (updates) => {
-  const settings = await apiRequest("/profile/settings", {
-    method: "PUT",
-    body: JSON.stringify(updates)
-  });
-  appState.settings = settings;
-  return settings;
-};
-
-export const updateSelectedPlan = async (selectedPlan) => {
-  const settings = await apiRequest("/profile/plan", {
-    method: "PUT",
-    body: JSON.stringify({ selectedPlan })
-  });
-  appState.settings = settings;
-  return settings;
-};
-
-export const getLaunchEstimate = async (plan) => apiRequest(`/launch/estimate?plan=${encodeURIComponent(plan)}`);
 
 export const initLaunchModal = () => {
   const modal = document.querySelector("[data-launch-modal]");
@@ -168,22 +101,11 @@ export const initLaunchModal = () => {
   };
 
   const runSimulation = async () => {
-    const selectedPlan = appState.settings.selectedPlan || "free";
-    let queue = 0;
-    let eta = 0;
-
-    try {
-      const estimate = await getLaunchEstimate(selectedPlan);
-      queue = estimate.queue;
-      eta = estimate.eta;
-      latencyEl.textContent = `${estimate.latency} ms`;
-      fpsEl.textContent = `${estimate.fps} FPS`;
-    } catch {
-      queue = 20;
-      eta = 7;
-      latencyEl.textContent = "22 ms";
-      fpsEl.textContent = "100 FPS";
-    }
+    const selectedPlan = appState.selectedPlan;
+    let queue = selectedPlan === "ultimate" ? 8 : selectedPlan === "performance" ? 18 : 30;
+    let eta = Math.ceil(queue / 3);
+    latencyEl.textContent = selectedPlan === "ultimate" ? "12 ms" : selectedPlan === "performance" ? "18 ms" : "26 ms";
+    fpsEl.textContent = selectedPlan === "ultimate" ? "132 FPS" : selectedPlan === "performance" ? "112 FPS" : "88 FPS";
 
     queueEl.textContent = String(queue);
     etaEl.textContent = `${eta} min`;
@@ -247,6 +169,16 @@ export const initLaunchButtons = (openModal) => {
 
 export const toTitle = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+export const signOut = () => {
+  appState.authUser = null;
+};
+
+export const signInDemo = async () => {
+  const user = await loadJson("./data/mock-user.json");
+  appState.authUser = user;
+  return user;
+};
+
 export const initAuthShell = () => {
   const shell = document.querySelector("[data-auth-shell]");
   if (!shell) {
@@ -254,14 +186,14 @@ export const initAuthShell = () => {
   }
 
   const render = () => {
-    const user = appState.user;
+    const user = appState.authUser;
     if (user) {
       shell.innerHTML = `
         <a href="./profile.html" class="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Profile</a>
         <button data-sign-out class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110">Sign Out</button>
       `;
-      shell.querySelector("[data-sign-out]")?.addEventListener("click", async () => {
-        await signOut();
+      shell.querySelector("[data-sign-out]")?.addEventListener("click", () => {
+        signOut();
         render();
       });
       return;
@@ -274,15 +206,9 @@ export const initAuthShell = () => {
 
     shell.querySelector("[data-sign-in]")?.addEventListener("click", async () => {
       await signInDemo();
-      await refreshSession();
-      try {
-        await getProfileSettings();
-      } catch {
-        // noop
-      }
       render();
     });
   };
 
-  refreshSession().then(render).catch(render);
+  render();
 };

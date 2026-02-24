@@ -1,11 +1,9 @@
 import {
   appState,
-  getGames,
-  getProfileSettings,
   initAuthShell,
   initLaunchButtons,
   initLaunchModal,
-  refreshSession,
+  loadJson,
   toTitle
 } from "./app.js";
 
@@ -40,7 +38,7 @@ const hydrateHeroState = () => {
   const selectedPlan = document.querySelector("[data-selected-plan]");
   const recentGame = document.querySelector("[data-recent-game]");
   if (selectedPlan) {
-    selectedPlan.textContent = toTitle(appState.settings.selectedPlan || "free");
+    selectedPlan.textContent = toTitle(appState.selectedPlan);
   }
   if (recentGame) {
     recentGame.textContent = appState.recentGame;
@@ -48,14 +46,10 @@ const hydrateHeroState = () => {
 };
 
 const init = async () => {
-  await refreshSession();
-  if (appState.user) {
-    await getProfileSettings().catch(() => {});
-  }
   initAuthShell();
   const launch = initLaunchModal();
 
-  const games = await getGames();
+  const games = await loadJson("./data/games.json");
   renderFeaturedGames(games);
   hydrateHeroState();
   initLaunchButtons(launch.openModal);

@@ -1,11 +1,8 @@
 import {
-  appState,
-  getGames,
-  getProfileSettings,
   initAuthShell,
   initLaunchButtons,
   initLaunchModal,
-  refreshSession,
+  loadJson,
   toTitle
 } from "./app.js";
 
@@ -66,13 +63,9 @@ const renderGames = (games) => {
 };
 
 const init = async () => {
-  await refreshSession();
-  if (appState.user) {
-    await getProfileSettings().catch(() => {});
-  }
   initAuthShell();
   const launch = initLaunchModal();
-  const games = await getGames();
+  const games = await loadJson("./data/games.json");
   renderFilterOptions(games);
 
   const searchInput = document.querySelector("[data-search]");

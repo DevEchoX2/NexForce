@@ -1,11 +1,8 @@
 import {
   appState,
-  getPlans,
-  getProfileSettings,
   initAuthShell,
-  refreshSession,
+  loadJson,
   toTitle,
-  updateSelectedPlan
 } from "./app.js";
 
 const renderPlans = (plans, billingCycle) => {
@@ -16,7 +13,7 @@ const renderPlans = (plans, billingCycle) => {
 
   container.innerHTML = plans
     .map((plan) => {
-      const selected = appState.settings.selectedPlan === plan.id;
+      const selected = appState.selectedPlan === plan.id;
       const cardClass = plan.recommended
         ? "rounded-2xl border border-primary/50 bg-primary/10 p-6 shadow-glow"
         : "plan-card";
@@ -50,11 +47,7 @@ const renderPlans = (plans, billingCycle) => {
   container.querySelectorAll("[data-plan-select]").forEach((button) => {
     button.addEventListener("click", async () => {
       const selectedPlan = button.getAttribute("data-plan-select") || "free";
-      if (appState.user) {
-        await updateSelectedPlan(selectedPlan).catch(() => {});
-      } else {
-        appState.settings.selectedPlan = selectedPlan;
-      }
+      appState.selectedPlan = selectedPlan;
       renderPlans(plans, appState.billingCycle);
       hydrateSelectedPlan();
     });
@@ -64,17 +57,13 @@ const renderPlans = (plans, billingCycle) => {
 const hydrateSelectedPlan = () => {
   const selected = document.querySelector("[data-current-plan]");
   if (selected) {
-    selected.textContent = toTitle(appState.settings.selectedPlan || "free");
+    selected.textContent = toTitle(appState.selectedPlan || "free");
   }
 };
 
 const init = async () => {
-  await refreshSession();
-  if (appState.user) {
-    await getProfileSettings().catch(() => {});
-  }
   initAuthShell();
-  const plans = await getPlans();
+  const plans = await loadJson("./data/plans.json");
   const billingToggle = document.querySelector("[data-billing-toggle]");
 
   if (billingToggle) {
