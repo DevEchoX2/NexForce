@@ -6,6 +6,13 @@ const HOST_ID = process.env.NEXFORCE_AGENT_HOST_ID || `host-${process.pid}`;
 const HOST_NAME = process.env.NEXFORCE_AGENT_HOST_NAME || `NexForce Agent ${HOST_ID}`;
 const HOST_REGION = process.env.NEXFORCE_AGENT_REGION || "local";
 const HOST_CAPACITY = Number(process.env.NEXFORCE_AGENT_CAPACITY || 1);
+const HOST_MODE = process.env.NEXFORCE_AGENT_MODE || "active";
+const HOST_GPU_TIER = process.env.NEXFORCE_AGENT_GPU_TIER || "basic";
+const HOST_MAX_FPS = Number(process.env.NEXFORCE_AGENT_MAX_FPS || 60);
+const HOST_SUPPORTED_GAMES = (process.env.NEXFORCE_AGENT_SUPPORTED_GAMES || "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean);
 const HEARTBEAT_INTERVAL_MS = Number(process.env.NEXFORCE_AGENT_HEARTBEAT_MS || 15000);
 const RETRY_BASE_MS = Number(process.env.NEXFORCE_AGENT_RETRY_BASE_MS || 1000);
 const RETRY_MAX_MS = Number(process.env.NEXFORCE_AGENT_RETRY_MAX_MS || 15000);
@@ -96,7 +103,13 @@ const registerHost = async () => {
       hostId: HOST_ID,
       name: HOST_NAME,
       region: HOST_REGION,
-      capacity: Number.isFinite(HOST_CAPACITY) && HOST_CAPACITY > 0 ? HOST_CAPACITY : 1
+      capacity: Number.isFinite(HOST_CAPACITY) && HOST_CAPACITY > 0 ? HOST_CAPACITY : 1,
+      mode: HOST_MODE,
+      capabilities: {
+        supportedGames: HOST_SUPPORTED_GAMES,
+        gpuTier: HOST_GPU_TIER,
+        maxFps: Number.isFinite(HOST_MAX_FPS) && HOST_MAX_FPS > 0 ? Math.floor(HOST_MAX_FPS) : 60
+      }
     })
   });
 };
@@ -203,7 +216,9 @@ const shutdown = async (signal) => {
 };
 
 const bootstrap = async () => {
-  console.log(`[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}`);
+  console.log(
+    `[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}, mode=${HOST_MODE}, gpuTier=${HOST_GPU_TIER}, maxFps=${HOST_MAX_FPS}`
+  );
 
   try {
     await waitForApiReadiness();

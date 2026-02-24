@@ -118,6 +118,8 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/hosts/register` (host key required)
 - `POST /api/hosts/:hostId/heartbeat` (host key required)
 - `POST /api/hosts/:hostId/offline` (host key required)
+- `PUT /api/hosts/:hostId/capabilities` (host key required)
+- `PUT /api/hosts/:hostId/mode` (host key required)
 
 Use header: `x-host-key: nexforce-host-key` (or override via `NEXFORCE_HOST_KEY`).
 
@@ -200,6 +202,32 @@ Step 6 hardens `server/host-agent.js` for unstable networks/process restarts:
 - `NEXFORCE_AGENT_REGISTER_MAX_RETRIES` (default: `10`, set `-1` for infinite)
 - `NEXFORCE_AGENT_HEARTBEAT_FAILURE_THRESHOLD` (default: `3`)
 - `NEXFORCE_AGENT_WAIT_FOR_API_ON_STARTUP` (default: `true`)
+
+## Step 7 (capability-aware scheduling)
+
+Step 7 upgrades matchmaking from load-only to compatibility-aware placement:
+
+- Hosts now carry scheduling metadata:
+	- `mode`: `active` | `draining` | `maintenance`
+	- `capabilities.supportedGames`
+	- `capabilities.gpuTier` (`basic` | `performance` | `ultimate`)
+	- `capabilities.maxFps`
+- Scheduler assigns sessions only to compatible `active` hosts and ranks by:
+	- region match (when `preferredRegion` is provided)
+	- lowest utilization
+	- freshest heartbeat
+- Session assignment now records `assignedBy` for scheduling traceability.
+
+### Step 7 request update
+
+- `POST /api/sessions/request` supports optional `preferredRegion`.
+
+### Step 7 host-agent environment variables
+
+- `NEXFORCE_AGENT_MODE` (default: `active`)
+- `NEXFORCE_AGENT_GPU_TIER` (default: `basic`)
+- `NEXFORCE_AGENT_MAX_FPS` (default: `60`)
+- `NEXFORCE_AGENT_SUPPORTED_GAMES` (default: empty, comma-separated slugs)
 
 ### Run Step 1 backend locally
 

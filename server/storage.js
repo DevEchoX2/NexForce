@@ -27,7 +27,13 @@ const defaultDb = {
       region: "local",
       capacity: 1,
       activeSessions: 0,
-      status: "online"
+      status: "online",
+      mode: "active",
+      capabilities: {
+        supportedGames: [],
+        gpuTier: "ultimate",
+        maxFps: 144
+      }
     }
   ],
   sessionQueue: [],
@@ -161,6 +167,12 @@ const normalizeDb = (data) => {
   } else {
     normalized.gameHosts = normalized.gameHosts.map((entry) => ({
       ...entry,
+      mode: entry.mode || "active",
+      capabilities: {
+        supportedGames: Array.isArray(entry.capabilities?.supportedGames) ? entry.capabilities.supportedGames : [],
+        gpuTier: entry.capabilities?.gpuTier || "basic",
+        maxFps: Number.isFinite(Number(entry.capabilities?.maxFps)) ? Math.floor(Number(entry.capabilities.maxFps)) : 60
+      },
       lastHeartbeatAt: entry.lastHeartbeatAt || null
     }));
   }

@@ -88,6 +88,24 @@ const planRank = {
   ultimate: 2
 };
 
+const hostMode = {
+  active: "active",
+  draining: "draining",
+  maintenance: "maintenance"
+};
+
+const gpuTierRank = {
+  basic: 0,
+  performance: 1,
+  ultimate: 2
+};
+
+const planHostRequirements = {
+  free: { gpuTier: "basic", minFps: 60 },
+  performance: { gpuTier: "performance", minFps: 120 },
+  ultimate: { gpuTier: "ultimate", minFps: 120 }
+};
+
 const planSessionDurationMs = {
   free: 60 * 60 * 1000,
   performance: 6 * 60 * 60 * 1000,
@@ -99,6 +117,68 @@ const canAccessGame = (userPlan, gameMinPlan) => {
 };
 
 const getPlanRank = (plan) => planRank[plan] ?? 0;
+
+const getGpuTierRank = (tier) => gpuTierRank[tier] ?? 0;
+
+const normalizeHostCapabilities = (capabilities = {}) => {
+  const supportedGames = Array.isArray(capabilities.supportedGames)
+    ? capabilities.supportedGames.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
+    : [];
+
+  const gpuTier = typeof capabilities.gpuTier === "string" ? capabilities.gpuTier : "basic";
+  const maxFps = Number(capabilities.maxFps);
+
+  return {
+    supportedGames,
+    gpuTier: gpuTierRank[gpuTier] !== undefined ? gpuTier : "basic",
+    maxFps: Number.isFinite(maxFps) && maxFps > 0 ? Math.floor(maxFps) : 60
+  };
+};
+
+const normalizeHostMode = (mode) => {
+  return mode === hostMode.draining || mode === hostMode.maintenance ? mode : hostMode.active;
+};
+
+const getPlanHostRequirement = (plan) => {
+  return planHostRequirements[plan] || planHostRequirements.free;
+};
+
+const isHostCompatible = (host, session) => {
+  if (host.status !== "online") {
+    return false;
+  }
+
+  if (normalizeHostMode(host.mode) !== hostMode.active) {
+    return false;
+  }
+
+  if (host.activeSessions >= host.capacity) {
+    return false;
+  }
+
+  const capabilities = normalizeHostCapabilities(host.capabilities);
+  const required = getPlanHostRequirement(session.plan);
+
+  if (getGpuTierRank(capabilities.gpuTier) < getGpuTierRank(required.gpuTier)) {
+    return false;
+  }
+
+  if (capabilities.maxFps < required.minFps) {
+    return false;
+  }
+
+  if (capabilities.supportedGames.length > 0 && !capabilities.supportedGames.includes(session.gameSlug)) {
+    return false;
+  }
+
+  return true;
+};
+
+const getAssignmentReason = (host, session) => {
+  const loadRatio = host.capacity > 0 ? (host.activeSessions / host.capacity).toFixed(2) : "1.00";
+  const regionLabel = session.preferredRegion ? `${host.region === session.preferredRegion ? "region_match" : "region_fallback"}` : "no_region_pref";
+  return `${regionLabel}+load_${loadRatio}+capability`;
+};
 
 const getPlanSessionDurationMs = (plan) => {
   return planSessionDurationMs[plan] ?? planSessionDurationMs.free;
@@ -166,8 +246,24 @@ const reconcileHostsAndSessions = (db) => {
   let changed = false;
 
   db.gameHosts.forEach((host) => {
+    const normalizedMode = normalizeHostMode(host.mode);
+    if (host.mode !== normalizedMode) {
+      host.mode = normalizedMode;
+      changed = true;
+    }
+
+    const normalizedCapabilities = normalizeHostCapabilities(host.capabilities);
+    if (JSON.stringify(host.capabilities || {}) !== JSON.stringify(normalizedCapabilities)) {
+      host.capabilities = normalizedCapabilities;
+      changed = true;
+    }
+
     const previousStatus = host.status;
     if (!isHostFresh(host)) {
+      host.status = "offline";
+    }
+
+    if (host.mode === hostMode.maintenance && host.status !== "offline") {
       host.status = "offline";
     }
 
@@ -230,10 +326,16 @@ const enforceSessionDurationLimits = (db) => {
   return { changed, timedOutCount };
 };
 
-const getAvailableHost = (db) => {
+const getAvailableHostForSession = (db, session) => {
   return db.gameHosts
-    .filter((host) => host.status === "online" && host.activeSessions < host.capacity)
+    .filter((host) => isHostCompatible(host, session))
     .sort((left, right) => {
+      const leftRegionScore = session.preferredRegion && left.region === session.preferredRegion ? 0 : 1;
+      const rightRegionScore = session.preferredRegion && right.region === session.preferredRegion ? 0 : 1;
+      if (leftRegionScore !== rightRegionScore) {
+        return leftRegionScore - rightRegionScore;
+      }
+
       const leftLoad = left.activeSessions / left.capacity;
       const rightLoad = right.activeSessions / right.capacity;
       if (leftLoad !== rightLoad) {
@@ -263,28 +365,40 @@ const promoteQueue = (db) => {
   sortQueue(db);
 
   while (db.sessionQueue.length > 0) {
-    const host = getAvailableHost(db);
-    if (!host) {
+    let assignedInPass = false;
+
+    for (let index = 0; index < db.sessionQueue.length; index += 1) {
+      const queueItem = db.sessionQueue[index];
+      const session = db.sessions.find((entry) => entry.id === queueItem.sessionId);
+
+      if (!session || session.status !== "queued") {
+        db.sessionQueue.splice(index, 1);
+        index -= 1;
+        changed = true;
+        continue;
+      }
+
+      const host = getAvailableHostForSession(db, session);
+      if (!host) {
+        continue;
+      }
+
+      db.sessionQueue.splice(index, 1);
+      session.status = "active";
+      session.hostId = host.id;
+      session.startedAt = new Date().toISOString();
+      session.assignedBy = getAssignmentReason(host, session);
+      assignConnection(session);
+      host.activeSessions += 1;
+      changed = true;
+      promotedCount += 1;
+      assignedInPass = true;
       break;
     }
 
-    const next = db.sessionQueue.shift();
-    if (!next) {
+    if (!assignedInPass) {
       break;
     }
-
-    const session = db.sessions.find((entry) => entry.id === next.sessionId);
-    if (!session || session.status !== "queued") {
-      continue;
-    }
-
-    session.status = "active";
-    session.hostId = host.id;
-    session.startedAt = new Date().toISOString();
-    assignConnection(session);
-    host.activeSessions += 1;
-    changed = true;
-    promotedCount += 1;
   }
 
   return { changed, promotedCount, timedOutCount };
@@ -362,7 +476,7 @@ app.get("/api/hosts", authMiddleware, (_req, res) => {
 });
 
 app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
-  const { hostId, name, region = "local", capacity = 1 } = req.body || {};
+  const { hostId, name, region = "local", capacity = 1, capabilities, mode } = req.body || {};
   if (!hostId || !name) {
     return res.status(400).json({ error: "hostId and name are required" });
   }
@@ -374,7 +488,12 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     existing.name = name;
     existing.region = region;
     existing.capacity = Number(capacity) > 0 ? Number(capacity) : 1;
+    existing.capabilities = normalizeHostCapabilities(capabilities || existing.capabilities);
+    existing.mode = normalizeHostMode(mode || existing.mode);
     existing.status = "online";
+    if (existing.mode === hostMode.maintenance) {
+      existing.status = "offline";
+    }
     existing.lastHeartbeatAt = new Date().toISOString();
     promoteQueue(db);
     writeDb(db);
@@ -388,8 +507,14 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     capacity: Number(capacity) > 0 ? Number(capacity) : 1,
     activeSessions: 0,
     status: "online",
+    mode: normalizeHostMode(mode),
+    capabilities: normalizeHostCapabilities(capabilities),
     lastHeartbeatAt: new Date().toISOString()
   };
+
+  if (host.mode === hostMode.maintenance) {
+    host.status = "offline";
+  }
 
   db.gameHosts.push(host);
   promoteQueue(db);
@@ -406,7 +531,9 @@ app.post("/api/hosts/:hostId/heartbeat", hostAuthMiddleware, (req, res) => {
     return res.status(404).json({ error: "Host not found" });
   }
 
-  host.status = "online";
+  if (normalizeHostMode(host.mode) !== hostMode.maintenance) {
+    host.status = "online";
+  }
   host.lastHeartbeatAt = new Date().toISOString();
   promoteQueue(db);
   writeDb(db);
@@ -424,6 +551,46 @@ app.post("/api/hosts/:hostId/offline", hostAuthMiddleware, (req, res) => {
   }
 
   host.status = "offline";
+  promoteQueue(db);
+  writeDb(db);
+  res.json({ success: true, host });
+});
+
+app.put("/api/hosts/:hostId/capabilities", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.capabilities = normalizeHostCapabilities(req.body || host.capabilities);
+  promoteQueue(db);
+  writeDb(db);
+  res.json({ success: true, host });
+});
+
+app.put("/api/hosts/:hostId/mode", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const { mode } = req.body || {};
+  const normalizedMode = normalizeHostMode(mode);
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.mode = normalizedMode;
+
+  if (normalizedMode === hostMode.maintenance) {
+    host.status = "offline";
+  } else if (normalizedMode === hostMode.active) {
+    host.status = "online";
+    host.lastHeartbeatAt = new Date().toISOString();
+  }
+
   promoteQueue(db);
   writeDb(db);
   res.json({ success: true, host });
@@ -532,7 +699,7 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
 });
 
 app.post("/api/sessions/request", authMiddleware, (req, res) => {
-  const { gameSlug } = req.body || {};
+  const { gameSlug, preferredRegion = null } = req.body || {};
   if (!gameSlug) {
     return res.status(400).json({ error: "gameSlug is required" });
   }
@@ -559,7 +726,12 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
     return res.status(409).json({ error: "User already has an active or queued session", session: existing });
   }
 
-  const host = db.gameHosts.find((entry) => entry.status === "online" && entry.activeSessions < entry.capacity);
+  const queuedSessionShape = {
+    plan: settings.selectedPlan,
+    gameSlug: game.slug,
+    preferredRegion: typeof preferredRegion === "string" && preferredRegion.trim() ? preferredRegion.trim() : null
+  };
+  const host = getAvailableHostForSession(db, queuedSessionShape);
   const id = `sess_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   const session = {
     id,
@@ -567,8 +739,10 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
     gameSlug: game.slug,
     gameTitle: game.title,
     plan: settings.selectedPlan,
+    preferredRegion: queuedSessionShape.preferredRegion,
     status: host ? "active" : "queued",
     hostId: host ? host.id : null,
+    assignedBy: host ? getAssignmentReason(host, queuedSessionShape) : null,
     requestedAt: new Date().toISOString(),
     startedAt: host ? new Date().toISOString() : null,
     endedAt: null,
