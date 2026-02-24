@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Browse NexForce cloud game library." />
+    <title>NexForce | Library</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script defer src="./assets/js/main.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+          <a href="./index.html" class="flex items-center gap-3">
+            <span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span>
+            <span class="text-xl font-bold tracking-wide">NexForce</span>
+          </a>
+          <nav class="hidden gap-8 md:flex">
+            <a href="./index.html" class="nav-link">Home</a>
+            <a href="./library.html" class="nav-link nav-link-active">Library</a>
+            <a href="./plans.html" class="nav-link">Plans</a>
+          </nav>
+          <a
+            href="./plans.html"
+            class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+          >
+            Upgrade
+          </a>
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-7xl px-6 py-14 lg:px-8">
+        <div class="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold">Cloud Game Library</h1>
+            <p class="mt-2 text-soft">Images can be plugged in later. Cards are ready for your assets.</p>
+          </div>
+          <span class="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">4 Games Available</span>
+        </div>
+
+        <section class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <article class="game-card">
+            <div class="h-36 rounded-xl border border-dashed border-white/20 bg-black/30"></div>
+            <h2 class="mt-4 text-lg font-semibold">Roblox</h2>
+            <p class="mt-1 text-sm text-soft">User-generated worlds and social play.</p>
+            <button
+              data-open-launch
+              data-game="Roblox"
+              class="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+            >
+              Launch
+            </button>
+          </article>
+
+          <article class="game-card">
+            <div class="h-36 rounded-xl border border-dashed border-white/20 bg-black/30"></div>
+            <h2 class="mt-4 text-lg font-semibold">Fortnite</h2>
+            <p class="mt-1 text-sm text-soft">Battle royale with smooth cloud controls.</p>
+            <button
+              data-open-launch
+              data-game="Fortnite"
+              class="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+            >
+              Launch
+            </button>
+          </article>
+
+          <article class="game-card">
+            <div class="h-36 rounded-xl border border-dashed border-white/20 bg-black/30"></div>
+            <h2 class="mt-4 text-lg font-semibold">Fall Guys</h2>
+            <p class="mt-1 text-sm text-soft">Party chaos and obstacle races online.</p>
+            <button
+              data-open-launch
+              data-game="Fall Guys"
+              class="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+            >
+              Launch
+            </button>
+          </article>
+
+          <article class="game-card">
+            <div class="h-36 rounded-xl border border-dashed border-white/20 bg-black/30"></div>
+            <h2 class="mt-4 text-lg font-semibold">Rocket League</h2>
+            <p class="mt-1 text-sm text-soft">Fast car-soccer matches with low latency.</p>
+            <button
+              data-open-launch
+              data-game="Rocket League"
+              class="mt-4 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+            >
+              Launch
+            </button>
+          </article>
+        </section>
+      </main>
+
+      <div data-launch-modal class="fixed inset-0 z-50 hidden bg-black/70 p-4">
+        <div class="mx-auto mt-20 max-w-lg rounded-2xl border border-white/15 bg-surface p-6 shadow-2xl">
+          <div class="mb-5 flex items-center justify-between">
+            <h3 class="text-xl font-bold">Launching <span data-launch-game>Cloud Session</span></h3>
+            <button data-close-launch class="rounded-lg border border-white/20 px-3 py-1 text-sm text-soft hover:text-white">Close</button>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Queue Position</p>
+              <p data-queue class="mt-1 text-2xl font-bold text-primary">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Estimated Start</p>
+              <p data-eta class="mt-1 text-2xl font-bold">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Network Latency</p>
+              <p data-latency class="mt-1 text-2xl font-bold">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Stream FPS</p>
+              <p data-fps class="mt-1 text-2xl font-bold">--</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

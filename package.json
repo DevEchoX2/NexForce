@@ -1,0 +1,13 @@
+{
+  "name": "nexforce",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/assets/css/main.css --minify",
+    "watch:css": "tailwindcss -i ./src/tailwind.css -o ./public/assets/css/main.css --watch",
+    "serve": "cd public && python3 -m http.server 5500"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

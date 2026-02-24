@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+@layer components {
+  .site-bg {
+    background:
+      radial-gradient(1100px 500px at 80% -10%, rgba(118, 185, 0, 0.2), transparent 60%),
+      radial-gradient(800px 300px at 15% 0%, rgba(34, 197, 94, 0.18), transparent 60%),
+      linear-gradient(180deg, #060709 0%, #090c11 45%, #050608 100%);
+  }
+
+  .glass-card {
+    @apply rounded-3xl border border-white/10 bg-surface/80 p-6 shadow-2xl;
+    backdrop-filter: blur(6px);
+  }
+
+  .game-card {
+    @apply rounded-2xl border border-white/10 bg-white/5 p-4 transition;
+  }
+
+  .game-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(118, 185, 0, 0.45);
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .nav-link {
+    @apply text-sm font-medium text-soft transition hover:text-white;
+  }
+
+  .nav-link-active {
+    @apply text-white;
+  }
+
+  .plan-card {
+    @apply rounded-2xl border border-white/10 bg-surface/70 p-6;
+  }
+}

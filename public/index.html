@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="NexForce lets you launch cloud gaming sessions instantly with premium low-latency streaming."
+    />
+    <title>NexForce | Cloud Gaming</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script defer src="./assets/js/main.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+          <a href="./index.html" class="flex items-center gap-3">
+            <span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span>
+            <span class="text-xl font-bold tracking-wide">NexForce</span>
+          </a>
+          <nav class="hidden gap-8 md:flex">
+            <a href="./index.html" class="nav-link nav-link-active">Home</a>
+            <a href="./library.html" class="nav-link">Library</a>
+            <a href="./plans.html" class="nav-link">Plans</a>
+          </nav>
+          <a
+            href="./plans.html"
+            class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+          >
+            Join Beta
+          </a>
+        </div>
+      </header>
+
+      <main>
+        <section class="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-2 lg:items-center lg:px-8 lg:py-28">
+          <div>
+            <p
+              class="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-primary"
+            >
+              Cloud Gaming, Reinvented
+            </p>
+            <h1 class="text-4xl font-extrabold leading-tight md:text-6xl">
+              Play your games
+              <span class="text-primary">instantly</span>
+              on any screen.
+            </h1>
+            <p class="mt-6 max-w-xl text-lg text-soft">
+              NexForce streams cloud rigs to laptop, mobile, and TV with low latency and smooth high-FPS performance.
+            </p>
+            <div class="mt-8 flex flex-wrap gap-4">
+              <button
+                data-open-launch
+                data-game="Fortnite"
+                class="rounded-xl bg-primary px-6 py-3 text-sm font-bold text-black transition hover:brightness-110"
+              >
+                Start Free Session
+              </button>
+              <a
+                href="./library.html"
+                class="rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
+              >
+                Open Library
+              </a>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="mb-5 flex items-center justify-between">
+              <h2 class="text-lg font-semibold">Live Session Preview</h2>
+              <span class="rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">RTX Priority</span>
+            </div>
+            <div class="aspect-video rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 p-4">
+              <div class="h-full rounded-xl border border-primary/20 bg-black/40 p-4">
+                <div class="flex items-center justify-between text-xs text-soft">
+                  <span>Rocket League</span>
+                  <span>1440p • 120 FPS</span>
+                </div>
+                <div class="mt-4 h-20 rounded-lg bg-gradient-to-r from-primary/20 via-primary/5 to-transparent"></div>
+                <div class="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
+                  <div class="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <p class="font-semibold text-white">18ms</p>
+                    <p class="text-soft">Latency</p>
+                  </div>
+                  <div class="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <p class="font-semibold text-white">99.9%</p>
+                    <p class="text-soft">Uptime</p>
+                  </div>
+                  <div class="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <p class="font-semibold text-white">6.2 GB/h</p>
+                    <p class="text-soft">Data Use</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="mt-4 text-sm text-soft">Launch sessions in seconds with no installs and no patch delays.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="border-t border-white/10 py-10">
+        <div class="mx-auto flex max-w-7xl flex-col gap-3 px-6 text-sm text-soft lg:flex-row lg:items-center lg:justify-between lg:px-8">
+          <p>Works on Windows, macOS, Android, iOS, Linux, and Smart TVs.</p>
+          <p>NexForce © 2026. Built for high-quality cloud gaming.</p>
+        </div>
+      </footer>
+    </div>
+
+    <div data-launch-modal class="fixed inset-0 z-50 hidden bg-black/70 p-4">
+      <div class="mx-auto mt-20 max-w-lg rounded-2xl border border-white/15 bg-surface p-6 shadow-2xl">
+        <div class="mb-5 flex items-center justify-between">
+          <h3 class="text-xl font-bold">Launching <span data-launch-game>Cloud Session</span></h3>
+          <button data-close-launch class="rounded-lg border border-white/20 px-3 py-1 text-sm text-soft hover:text-white">Close</button>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p class="text-xs text-soft">Queue Position</p>
+            <p data-queue class="mt-1 text-2xl font-bold text-primary">--</p>
+          </div>
+          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p class="text-xs text-soft">Estimated Start</p>
+            <p data-eta class="mt-1 text-2xl font-bold">--</p>
+          </div>
+          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p class="text-xs text-soft">Network Latency</p>
+            <p data-latency class="mt-1 text-2xl font-bold">--</p>
+          </div>
+          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p class="text-xs text-soft">Stream FPS</p>
+            <p data-fps class="mt-1 text-2xl font-bold">--</p>
+          </div>
+        </div>
+        <p class="mt-4 text-sm text-soft">This is a frontend simulator for Phase 1. Real game streaming backend comes next.</p>
+      </div>
+    </div>
+  </body>
+</html>
