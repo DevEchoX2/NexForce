@@ -184,6 +184,23 @@ Step 5 is now implemented in the backend worker pipeline:
 
 Step 5 runs through the existing Step 3 worker tick loop and also applies when session/control endpoints trigger queue promotion.
 
+## Step 6 (host-agent resilience)
+
+Step 6 hardens `server/host-agent.js` for unstable networks/process restarts:
+
+- Exponential backoff + jitter for API health/register retries
+- Optional API readiness wait on startup before registration
+- Non-overlapping heartbeat execution guard
+- Automatic host re-registration after consecutive heartbeat failures
+
+### Step 6 host-agent environment variables
+
+- `NEXFORCE_AGENT_RETRY_BASE_MS` (default: `1000`)
+- `NEXFORCE_AGENT_RETRY_MAX_MS` (default: `15000`)
+- `NEXFORCE_AGENT_REGISTER_MAX_RETRIES` (default: `10`, set `-1` for infinite)
+- `NEXFORCE_AGENT_HEARTBEAT_FAILURE_THRESHOLD` (default: `3`)
+- `NEXFORCE_AGENT_WAIT_FOR_API_ON_STARTUP` (default: `true`)
+
 ### Run Step 1 backend locally
 
 ```bash
