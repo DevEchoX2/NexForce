@@ -168,6 +168,22 @@ npm run host:agent
 - `NEXFORCE_AGENT_CAPACITY` (default: `1`)
 - `NEXFORCE_AGENT_HEARTBEAT_MS` (default: `15000`)
 
+## Step 5 (session lifecycle watchdog)
+
+Step 5 is now implemented in the backend worker pipeline:
+
+- Automatic max-duration enforcement per plan:
+	- `free`: 1 hour
+	- `performance`: 6 hours
+	- `ultimate`: 8 hours
+- Timed-out sessions are ended with `endReason: session_timeout`
+- Timed-out capacity is reclaimed and queue promotion runs on the same tick
+- Session responses now include runtime metadata:
+	- `maxDurationSec`
+	- `remainingSec` (for active sessions)
+
+Step 5 runs through the existing Step 3 worker tick loop and also applies when session/control endpoints trigger queue promotion.
+
 ### Run Step 1 backend locally
 
 ```bash

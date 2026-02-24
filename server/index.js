@@ -88,11 +88,47 @@ const planRank = {
   ultimate: 2
 };
 
+const planSessionDurationMs = {
+  free: 60 * 60 * 1000,
+  performance: 6 * 60 * 60 * 1000,
+  ultimate: 8 * 60 * 60 * 1000
+};
+
 const canAccessGame = (userPlan, gameMinPlan) => {
   return (planRank[userPlan] ?? 0) >= (planRank[gameMinPlan] ?? 0);
 };
 
 const getPlanRank = (plan) => planRank[plan] ?? 0;
+
+const getPlanSessionDurationMs = (plan) => {
+  return planSessionDurationMs[plan] ?? planSessionDurationMs.free;
+};
+
+const getSessionTimeRemainingMs = (session, nowMs = Date.now()) => {
+  if (!session.startedAt) {
+    return getPlanSessionDurationMs(session.plan);
+  }
+
+  const startedAtMs = new Date(session.startedAt).getTime();
+  if (!Number.isFinite(startedAtMs)) {
+    return getPlanSessionDurationMs(session.plan);
+  }
+
+  const elapsedMs = Math.max(0, nowMs - startedAtMs);
+  return Math.max(0, getPlanSessionDurationMs(session.plan) - elapsedMs);
+};
+
+const withSessionRuntime = (session, nowMs = Date.now()) => {
+  const maxDurationMs = getPlanSessionDurationMs(session.plan);
+  const isActive = session.status === "active";
+  const remainingMs = isActive ? getSessionTimeRemainingMs(session, nowMs) : null;
+
+  return {
+    ...session,
+    maxDurationSec: Math.floor(maxDurationMs / 1000),
+    remainingSec: remainingMs === null ? null : Math.floor(remainingMs / 1000)
+  };
+};
 
 const isHostFresh = (host) => {
   if (host.status !== "online") {
@@ -167,6 +203,33 @@ const reconcileHostsAndSessions = (db) => {
   return changed;
 };
 
+const enforceSessionDurationLimits = (db) => {
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  let changed = false;
+  let timedOutCount = 0;
+
+  db.sessions.forEach((session) => {
+    if (session.status !== "active") {
+      return;
+    }
+
+    const remainingMs = getSessionTimeRemainingMs(session, nowMs);
+    if (remainingMs > 0) {
+      return;
+    }
+
+    session.status = "ended";
+    session.endedAt = nowIso;
+    session.endReason = "session_timeout";
+    session.hostId = null;
+    changed = true;
+    timedOutCount += 1;
+  });
+
+  return { changed, timedOutCount };
+};
+
 const getAvailableHost = (db) => {
   return db.gameHosts
     .filter((host) => host.status === "online" && host.activeSessions < host.capacity)
@@ -193,7 +256,9 @@ const sortQueue = (db) => {
 };
 
 const promoteQueue = (db) => {
-  let changed = reconcileHostsAndSessions(db);
+  const { changed: durationChanged, timedOutCount } = enforceSessionDurationLimits(db);
+  const reconcileChanged = reconcileHostsAndSessions(db);
+  let changed = durationChanged || reconcileChanged;
   let promotedCount = 0;
   sortQueue(db);
 
@@ -222,7 +287,7 @@ const promoteQueue = (db) => {
     promotedCount += 1;
   }
 
-  return { changed, promotedCount };
+  return { changed, promotedCount, timedOutCount };
 };
 
 const runMatchmakerTick = ({ forceWrite = false } = {}) => {
@@ -237,7 +302,7 @@ const runMatchmakerTick = ({ forceWrite = false } = {}) => {
   const db = readDb();
 
   try {
-    const { changed, promotedCount } = promoteQueue(db);
+    const { changed, promotedCount, timedOutCount } = promoteQueue(db);
 
     if (changed || forceWrite) {
       writeDb(db);
@@ -256,6 +321,7 @@ const runMatchmakerTick = ({ forceWrite = false } = {}) => {
     return {
       changed,
       promotedCount,
+      timedOutCount,
       queueDepth: db.sessionQueue.length,
       activeSessions: db.sessions.filter((entry) => entry.status === "active").length,
       onlineHosts: db.gameHosts.filter((entry) => entry.status === "online").length
@@ -373,8 +439,12 @@ app.get("/api/control/summary", authMiddleware, (req, res) => {
   res.json({
     user: req.auth.user,
     settings: userSettings,
-    activeSessions: db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "active"),
-    queuedSessions: db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "queued"),
+    activeSessions: db.sessions
+      .filter((entry) => entry.userId === req.auth.user.id && entry.status === "active")
+      .map((entry) => withSessionRuntime(entry)),
+    queuedSessions: db.sessions
+      .filter((entry) => entry.userId === req.auth.user.id && entry.status === "queued")
+      .map((entry) => withSessionRuntime(entry)),
     queuePosition: queuePosition >= 0 ? queuePosition + 1 : null,
     hosts: db.gameHosts
   });
@@ -527,7 +597,7 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
       ? db.sessionQueue.findIndex((entry) => entry.sessionId === session.id) + 1
       : null;
 
-  res.json({ session, queuePosition });
+  res.json({ session: withSessionRuntime(session), queuePosition });
 });
 
 app.get("/api/sessions/me", authMiddleware, (req, res) => {
@@ -543,7 +613,8 @@ app.get("/api/sessions/me", authMiddleware, (req, res) => {
       entry.status === "queued"
         ? db.sessionQueue.findIndex((queueEntry) => queueEntry.sessionId === entry.id) + 1
         : null;
-    return { ...entry, queuePosition: queuePosition > 0 ? queuePosition : null };
+    const withRuntime = withSessionRuntime(entry);
+    return { ...withRuntime, queuePosition: queuePosition > 0 ? queuePosition : null };
   });
 
   res.json(hydrated);
