@@ -7,6 +7,7 @@ const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
+const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -191,6 +192,27 @@ const promoteQueue = (db) => {
     session.startedAt = new Date().toISOString();
     assignConnection(session);
     host.activeSessions += 1;
+  }
+};
+
+const runMatchmakerTick = () => {
+  const db = readDb();
+  const before = JSON.stringify({
+    hosts: db.gameHosts,
+    queue: db.sessionQueue,
+    sessions: db.sessions
+  });
+
+  promoteQueue(db);
+
+  const after = JSON.stringify({
+    hosts: db.gameHosts,
+    queue: db.sessionQueue,
+    sessions: db.sessions
+  });
+
+  if (before !== after) {
+    writeDb(db);
   }
 };
 
@@ -525,6 +547,8 @@ app.get("*", (_req, res) => {
 });
 
 ensureDb();
+
+setInterval(runMatchmakerTick, MATCHMAKER_TICK_MS);
 
 app.listen(PORT, () => {
   console.log(`NexForce running on http://localhost:${PORT}`);
