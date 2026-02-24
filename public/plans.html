@@ -12,7 +12,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./assets/css/main.css" />
-    <script defer src="./assets/js/main.js"></script>
+    <script type="module" defer src="./assets/js/plans.js"></script>
   </head>
   <body class="bg-black text-white antialiased">
     <div class="site-bg min-h-screen">
@@ -41,6 +41,7 @@
           <div>
             <h1 class="text-3xl font-bold">Choose Your Plan</h1>
             <p class="mt-2 text-soft">Switch between monthly and yearly pricing instantly.</p>
+            <p class="mt-2 text-xs text-soft">Selected plan: <span data-current-plan class="font-semibold text-white">Free</span></p>
           </div>
 
           <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-soft">
@@ -53,46 +54,7 @@
           </label>
         </div>
 
-        <section class="grid gap-6 md:grid-cols-3">
-          <article class="plan-card">
-            <h2 class="text-xl font-semibold">Free</h2>
-            <p class="mt-2 text-sm text-soft">Queue-based sessions for casual play.</p>
-            <p class="mt-5 text-3xl font-bold"><span data-monthly>$0</span><span data-yearly class="hidden">$0</span></p>
-            <ul class="mt-5 space-y-2 text-sm text-soft">
-              <li>• Up to 1-hour sessions</li>
-              <li>• Standard queue</li>
-              <li>• 1080p up to 60 FPS</li>
-            </ul>
-          </article>
-
-          <article class="rounded-2xl border border-primary/50 bg-primary/10 p-6 shadow-glow">
-            <h2 class="text-xl font-semibold">Performance</h2>
-            <p class="mt-2 text-sm text-soft">Lower latency and priority access.</p>
-            <p class="mt-5 text-3xl font-bold">
-              <span data-monthly>$9.99/mo</span>
-              <span data-yearly class="hidden">$99/yr</span>
-            </p>
-            <ul class="mt-5 space-y-2 text-sm text-soft">
-              <li>• Up to 6-hour sessions</li>
-              <li>• Priority queue</li>
-              <li>• 1440p up to 120 FPS</li>
-            </ul>
-          </article>
-
-          <article class="plan-card">
-            <h2 class="text-xl font-semibold">Ultimate</h2>
-            <p class="mt-2 text-sm text-soft">Best cloud rigs and max quality stream.</p>
-            <p class="mt-5 text-3xl font-bold">
-              <span data-monthly>$19.99/mo</span>
-              <span data-yearly class="hidden">$199/yr</span>
-            </p>
-            <ul class="mt-5 space-y-2 text-sm text-soft">
-              <li>• Up to 8-hour sessions</li>
-              <li>• Fastest queue tier</li>
-              <li>• 4K up to 120 FPS</li>
-            </ul>
-          </article>
-        </section>
+        <section data-plans-grid class="grid gap-6 md:grid-cols-3"></section>
       </main>
     </div>
   </body>

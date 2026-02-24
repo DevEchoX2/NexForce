@@ -1,0 +1,46 @@
+[
+  {
+    "title": "Roblox",
+    "slug": "roblox",
+    "description": "User-generated worlds and social play.",
+    "genre": "Sandbox",
+    "platform": "Cross-Platform",
+    "status": "Available",
+    "minPlan": "free",
+    "image": "./assets/images/roblox.png",
+    "featured": true
+  },
+  {
+    "title": "Fortnite",
+    "slug": "fortnite",
+    "description": "Battle royale with smooth cloud controls.",
+    "genre": "Shooter",
+    "platform": "Cross-Platform",
+    "status": "Available",
+    "minPlan": "free",
+    "image": "./assets/images/fortnite.png",
+    "featured": true
+  },
+  {
+    "title": "Fall Guys",
+    "slug": "fall-guys",
+    "description": "Party chaos and obstacle races online.",
+    "genre": "Party",
+    "platform": "PC",
+    "status": "Available",
+    "minPlan": "performance",
+    "image": null,
+    "featured": true
+  },
+  {
+    "title": "Rocket League",
+    "slug": "rocket-league",
+    "description": "Fast car-soccer matches with low latency.",
+    "genre": "Sports",
+    "platform": "PC",
+    "status": "Available",
+    "minPlan": "performance",
+    "image": null,
+    "featured": true
+  }
+]
