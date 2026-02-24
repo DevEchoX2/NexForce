@@ -128,6 +128,21 @@ Step 2 currently includes:
 - Queue promotion by plan priority (`ultimate` > `performance` > `free`) then FIFO within same tier
 - Basic host load-aware assignment (lowest utilization first)
 
+## Step 3 (matchmaker worker + operations)
+
+Step 3 is now implemented with a continuous background worker:
+
+- Periodic matchmaker tick loop (`MATCHMAKER_TICK_MS`, default 5000)
+- Automatic reconciliation of stale hosts and active sessions
+- Non-overlapping tick execution guard
+- Worker runtime telemetry (tick counts, duration, last write, last error)
+- Manual admin tick trigger for operational recovery/testing
+
+### Step 3 control endpoints
+
+- `GET /api/control/worker` (user auth required)
+- `POST /api/control/worker/tick` (user auth required)
+
 ### Run Step 1 backend locally
 
 ```bash

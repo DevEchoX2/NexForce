@@ -25,6 +25,17 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .concat(defaultAllowedOrigins);
 
 const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
+const matchmakerState = {
+  startedAt: new Date().toISOString(),
+  isRunning: false,
+  totalTicks: 0,
+  changedTicks: 0,
+  lastTickAt: null,
+  lastDurationMs: 0,
+  lastWriteAt: null,
+  lastErrorAt: null,
+  lastError: null
+};
 
 app.use(express.json());
 
@@ -116,12 +127,23 @@ const assignConnection = (session) => {
 const reconcileHostsAndSessions = (db) => {
   const now = new Date().toISOString();
   const hostById = new Map(db.gameHosts.map((host) => [host.id, host]));
+  let changed = false;
 
   db.gameHosts.forEach((host) => {
+    const previousStatus = host.status;
     if (!isHostFresh(host)) {
       host.status = "offline";
     }
+
+    if (host.status !== previousStatus) {
+      changed = true;
+    }
+
+    const previousActiveSessions = host.activeSessions;
     host.activeSessions = 0;
+    if (previousActiveSessions !== 0) {
+      changed = true;
+    }
   });
 
   db.sessions.forEach((session) => {
@@ -131,6 +153,7 @@ const reconcileHostsAndSessions = (db) => {
 
     const host = hostById.get(session.hostId);
     if (!host || host.status !== "online") {
+      changed = true;
       session.status = "ended";
       session.endedAt = now;
       session.endReason = "host_offline";
@@ -140,6 +163,8 @@ const reconcileHostsAndSessions = (db) => {
 
     host.activeSessions += 1;
   });
+
+  return changed;
 };
 
 const getAvailableHost = (db) => {
@@ -168,7 +193,8 @@ const sortQueue = (db) => {
 };
 
 const promoteQueue = (db) => {
-  reconcileHostsAndSessions(db);
+  let changed = reconcileHostsAndSessions(db);
+  let promotedCount = 0;
   sortQueue(db);
 
   while (db.sessionQueue.length > 0) {
@@ -192,29 +218,61 @@ const promoteQueue = (db) => {
     session.startedAt = new Date().toISOString();
     assignConnection(session);
     host.activeSessions += 1;
+    changed = true;
+    promotedCount += 1;
   }
+
+  return { changed, promotedCount };
 };
 
-const runMatchmakerTick = () => {
+const runMatchmakerTick = ({ forceWrite = false } = {}) => {
+  if (matchmakerState.isRunning) {
+    return { skipped: true };
+  }
+
+  const startedAt = Date.now();
+  matchmakerState.isRunning = true;
+  matchmakerState.totalTicks += 1;
+
   const db = readDb();
-  const before = JSON.stringify({
-    hosts: db.gameHosts,
-    queue: db.sessionQueue,
-    sessions: db.sessions
-  });
 
-  promoteQueue(db);
+  try {
+    const { changed, promotedCount } = promoteQueue(db);
 
-  const after = JSON.stringify({
-    hosts: db.gameHosts,
-    queue: db.sessionQueue,
-    sessions: db.sessions
-  });
+    if (changed || forceWrite) {
+      writeDb(db);
+      matchmakerState.lastWriteAt = new Date().toISOString();
+    }
 
-  if (before !== after) {
-    writeDb(db);
+    if (changed) {
+      matchmakerState.changedTicks += 1;
+    }
+
+    matchmakerState.lastTickAt = new Date().toISOString();
+    matchmakerState.lastDurationMs = Date.now() - startedAt;
+    matchmakerState.lastErrorAt = null;
+    matchmakerState.lastError = null;
+
+    return {
+      changed,
+      promotedCount,
+      queueDepth: db.sessionQueue.length,
+      activeSessions: db.sessions.filter((entry) => entry.status === "active").length,
+      onlineHosts: db.gameHosts.filter((entry) => entry.status === "online").length
+    };
+  } catch (error) {
+    matchmakerState.lastErrorAt = new Date().toISOString();
+    matchmakerState.lastError = error.message;
+    throw error;
+  } finally {
+    matchmakerState.isRunning = false;
   }
 };
+
+const getWorkerSnapshot = () => ({
+  ...matchmakerState,
+  tickIntervalMs: MATCHMAKER_TICK_MS
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -540,6 +598,15 @@ app.get("/api/launch/estimate", (req, res) => {
   res.json({ queue, eta: Math.ceil(queue / 3), latency, fps });
 });
 
+app.get("/api/control/worker", authMiddleware, (_req, res) => {
+  res.json(getWorkerSnapshot());
+});
+
+app.post("/api/control/worker/tick", authMiddleware, (_req, res) => {
+  const result = runMatchmakerTick({ forceWrite: true });
+  res.json({ worker: getWorkerSnapshot(), result });
+});
+
 app.use(express.static(publicDir));
 
 app.get("*", (_req, res) => {
@@ -548,7 +615,17 @@ app.get("*", (_req, res) => {
 
 ensureDb();
 
-setInterval(runMatchmakerTick, MATCHMAKER_TICK_MS);
+const matchmakerTimer = setInterval(() => {
+  try {
+    runMatchmakerTick();
+  } catch (error) {
+    console.error("Matchmaker tick failed", error);
+  }
+}, MATCHMAKER_TICK_MS);
+
+if (typeof matchmakerTimer.unref === "function") {
+  matchmakerTimer.unref();
+}
 
 app.listen(PORT, () => {
   console.log(`NexForce running on http://localhost:${PORT}`);
