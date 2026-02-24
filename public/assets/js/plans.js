@@ -1,4 +1,4 @@
-import { appState, loadJson, toTitle } from "./app.js";
+import { appState, initAuthShell, loadJson, toTitle } from "./app.js";
 
 const renderPlans = (plans, billingCycle) => {
   const container = document.querySelector("[data-plans-grid]");
@@ -56,6 +56,7 @@ const hydrateSelectedPlan = () => {
 };
 
 const init = async () => {
+  initAuthShell();
   const plans = await loadJson("./data/plans.json");
   const billingToggle = document.querySelector("[data-billing-toggle]");
 

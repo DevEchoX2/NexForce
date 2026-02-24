@@ -1,4 +1,4 @@
-import { appState, initLaunchButtons, initLaunchModal, loadJson, toTitle } from "./app.js";
+import { appState, initAuthShell, initLaunchButtons, initLaunchModal, loadJson, toTitle } from "./app.js";
 
 const renderFeaturedGames = (games) => {
   const container = document.querySelector("[data-featured-games]");
@@ -39,6 +39,7 @@ const hydrateHeroState = () => {
 };
 
 const init = async () => {
+  initAuthShell();
   const launch = initLaunchModal();
 
   const games = await loadJson("./data/games.json");

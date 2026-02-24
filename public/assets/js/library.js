@@ -1,4 +1,4 @@
-import { initLaunchButtons, initLaunchModal, loadJson, toTitle } from "./app.js";
+import { initAuthShell, initLaunchButtons, initLaunchModal, loadJson, toTitle } from "./app.js";
 
 const renderFilterOptions = (games) => {
   const genreSelect = document.querySelector("[data-genre-filter]");
@@ -57,6 +57,7 @@ const renderGames = (games) => {
 };
 
 const init = async () => {
+  initAuthShell();
   const launch = initLaunchModal();
   const games = await loadJson("./data/games.json");
   renderFilterOptions(games);

@@ -1,7 +1,10 @@
 const STORAGE_KEYS = {
   billingCycle: "nexforce.billingCycle",
   selectedPlan: "nexforce.selectedPlan",
-  recentGame: "nexforce.recentGame"
+  recentGame: "nexforce.recentGame",
+  authUser: "nexforce.authUser",
+  preferredDevice: "nexforce.preferredDevice",
+  networkProfile: "nexforce.networkProfile"
 };
 
 export const getStoredValue = (key, fallbackValue) => {
@@ -31,6 +34,36 @@ export const appState = {
   },
   set recentGame(value) {
     setStoredValue(STORAGE_KEYS.recentGame, value);
+  },
+  get authUser() {
+    const value = getStoredValue(STORAGE_KEYS.authUser, "");
+    if (!value) {
+      return null;
+    }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  },
+  set authUser(value) {
+    if (!value) {
+      localStorage.removeItem(STORAGE_KEYS.authUser);
+      return;
+    }
+    setStoredValue(STORAGE_KEYS.authUser, JSON.stringify(value));
+  },
+  get preferredDevice() {
+    return getStoredValue(STORAGE_KEYS.preferredDevice, "PC");
+  },
+  set preferredDevice(value) {
+    setStoredValue(STORAGE_KEYS.preferredDevice, value);
+  },
+  get networkProfile() {
+    return getStoredValue(STORAGE_KEYS.networkProfile, "Balanced");
+  },
+  set networkProfile(value) {
+    setStoredValue(STORAGE_KEYS.networkProfile, value);
   }
 };
 
@@ -138,3 +171,47 @@ export const initLaunchButtons = (openModal) => {
 };
 
 export const toTitle = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+export const signOut = () => {
+  appState.authUser = null;
+};
+
+export const signInDemo = async () => {
+  const demoUser = await loadJson("./data/mock-user.json");
+  appState.authUser = demoUser;
+  return demoUser;
+};
+
+export const initAuthShell = () => {
+  const shell = document.querySelector("[data-auth-shell]");
+  if (!shell) {
+    return;
+  }
+
+  const render = () => {
+    const user = appState.authUser;
+    if (user) {
+      shell.innerHTML = `
+        <a href="./profile.html" class="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Profile</a>
+        <button data-sign-out class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110">Sign Out</button>
+      `;
+      shell.querySelector("[data-sign-out]")?.addEventListener("click", () => {
+        signOut();
+        render();
+      });
+      return;
+    }
+
+    shell.innerHTML = `
+      <button data-sign-in class="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Sign In</button>
+      <a href="./plans.html" class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110">Join Beta</a>
+    `;
+
+    shell.querySelector("[data-sign-in]")?.addEventListener("click", async () => {
+      await signInDemo();
+      render();
+    });
+  };
+
+  render();
+};

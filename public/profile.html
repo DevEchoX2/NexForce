@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="NexForce profile and settings." />
+    <title>NexForce | Profile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script type="module" defer src="./assets/js/profile.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+          <a href="./index.html" class="flex items-center gap-3">
+            <span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span>
+            <span class="text-xl font-bold tracking-wide">NexForce</span>
+          </a>
+          <nav class="hidden gap-8 md:flex">
+            <a href="./index.html" class="nav-link">Home</a>
+            <a href="./library.html" class="nav-link">Library</a>
+            <a href="./plans.html" class="nav-link">Plans</a>
+            <a href="./profile.html" class="nav-link nav-link-active">Profile</a>
+          </nav>
+          <div data-auth-shell class="flex items-center gap-2"></div>
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-4xl px-6 py-14 lg:px-8">
+        <section class="glass-card">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-3xl font-bold">Account</h1>
+              <p class="mt-2 text-soft">Auth-ready shell for future backend login.</p>
+            </div>
+            <span data-profile-status class="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">Signed Out</span>
+          </div>
+
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Display Name</p>
+              <p data-profile-name class="mt-1 text-lg font-semibold">Guest</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Email</p>
+              <p data-profile-email class="mt-1 text-lg font-semibold">Not signed in</p>
+            </div>
+          </div>
+
+          <div data-profile-signin class="mt-6">
+            <button data-profile-signin-btn class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110">Sign In (Demo)</button>
+          </div>
+
+          <div data-profile-settings class="mt-8 hidden">
+            <h2 class="text-xl font-semibold">Streaming Settings</h2>
+            <form data-settings-form class="mt-4 grid gap-4 sm:grid-cols-2">
+              <label class="text-sm text-soft">
+                Preferred Device
+                <select data-device class="mt-2 w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none ring-primary/40 focus:ring">
+                  <option>PC</option>
+                  <option>Mobile</option>
+                  <option>Tablet</option>
+                  <option>TV</option>
+                </select>
+              </label>
+              <label class="text-sm text-soft">
+                Network Profile
+                <select data-network class="mt-2 w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none ring-primary/40 focus:ring">
+                  <option>Balanced</option>
+                  <option>Data Saver</option>
+                  <option>Ultra Quality</option>
+                </select>
+              </label>
+              <div class="sm:col-span-2 flex items-center gap-3">
+                <button type="submit" class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110">Save Settings</button>
+                <span data-saved-text class="text-sm text-soft"></span>
+              </div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
