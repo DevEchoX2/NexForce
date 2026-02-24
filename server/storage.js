@@ -12,7 +12,7 @@ const defaultDb = {
       tier: "performance"
     }
   ],
-  sessions: [],
+  authSessions: [],
   settingsByUserId: {
     "demo-user-001": {
       preferredDevice: "PC",
@@ -20,6 +20,18 @@ const defaultDb = {
       selectedPlan: "performance"
     }
   },
+  gameHosts: [
+    {
+      id: "host-1",
+      name: "NexForce Host 1",
+      region: "local",
+      capacity: 1,
+      activeSessions: 0,
+      status: "online"
+    }
+  ],
+  sessionQueue: [],
+  sessions: [],
   plans: [
     {
       id: "free",
@@ -108,10 +120,60 @@ const ensureDb = () => {
   }
 };
 
+const normalizeDb = (data) => {
+  const normalized = { ...data };
+
+  if (!Array.isArray(normalized.users)) {
+    normalized.users = defaultDb.users;
+  }
+
+  if (!normalized.settingsByUserId || typeof normalized.settingsByUserId !== "object") {
+    normalized.settingsByUserId = defaultDb.settingsByUserId;
+  }
+
+  if (!Array.isArray(normalized.plans)) {
+    normalized.plans = defaultDb.plans;
+  }
+
+  if (!Array.isArray(normalized.games)) {
+    normalized.games = defaultDb.games;
+  }
+
+  if (!Array.isArray(normalized.authSessions)) {
+    const legacyAuthSessions = Array.isArray(normalized.sessions)
+      ? normalized.sessions.filter((entry) => entry && typeof entry.token === "string")
+      : [];
+    normalized.authSessions = legacyAuthSessions;
+  }
+
+  if (!Array.isArray(normalized.sessions)) {
+    normalized.sessions = [];
+  } else if (normalized.sessions.some((entry) => entry && typeof entry.token === "string")) {
+    normalized.sessions = normalized.sessions.filter((entry) => entry && typeof entry.token !== "string");
+  }
+
+  if (!Array.isArray(normalized.sessionQueue)) {
+    normalized.sessionQueue = [];
+  }
+
+  if (!Array.isArray(normalized.gameHosts) || normalized.gameHosts.length === 0) {
+    normalized.gameHosts = defaultDb.gameHosts;
+  }
+
+  return normalized;
+};
+
 const readDb = () => {
   ensureDb();
   const raw = fs.readFileSync(dbPath, "utf8");
-  return JSON.parse(raw);
+  const parsed = JSON.parse(raw);
+  const normalized = normalizeDb(parsed);
+
+  if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+    writeDb(normalized);
+  }
+
+  return normalized;
 };
 
 const writeDb = (data) => {

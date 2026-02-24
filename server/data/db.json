@@ -7,20 +7,45 @@
       "tier": "performance"
     }
   ],
-  "sessions": [
+  "authSessions": [
     {
-      "token": "a042b2cb07de9b2284d379d6937eb40fe50f4991b63578e9",
+      "token": "f0c65b6208e229c5f3061db522c253bf955ff10768658e84",
       "userId": "demo-user-001",
-      "createdAt": "2026-02-24T16:15:26.068Z"
+      "createdAt": "2026-02-24T19:12:22.504Z"
     }
   ],
   "settingsByUserId": {
     "demo-user-001": {
       "preferredDevice": "TV",
       "networkProfile": "Ultra Quality",
-      "selectedPlan": "performance"
+      "selectedPlan": "free"
     }
   },
+  "gameHosts": [
+    {
+      "id": "host-1",
+      "name": "NexForce Host 1",
+      "region": "local",
+      "capacity": 1,
+      "activeSessions": 0,
+      "status": "online"
+    }
+  ],
+  "sessionQueue": [],
+  "sessions": [
+    {
+      "id": "sess_1771960321723_273",
+      "userId": "demo-user-001",
+      "gameSlug": "roblox",
+      "gameTitle": "Roblox",
+      "plan": "performance",
+      "status": "ended",
+      "hostId": "host-1",
+      "requestedAt": "2026-02-24T19:12:01.723Z",
+      "startedAt": "2026-02-24T19:12:01.723Z",
+      "endedAt": "2026-02-24T19:12:01.773Z"
+    }
+  ],
   "plans": [
     {
       "id": "free",

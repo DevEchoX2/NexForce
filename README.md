@@ -90,3 +90,32 @@ Open:
 ## Notes
 
 This is currently a frontend MVP. Real cloud streaming infrastructure and production backend services can be added in a later phase.
+
+## Step 1 backend (control plane)
+
+Step 1 is now available in `server/` as a local/VPS-ready control plane (no Railway required):
+
+- Auth/session token endpoints
+- Plan checks for game access
+- Session request queue and host allocation
+- Session state endpoints (queued, active, ended)
+
+### Control-plane endpoints
+
+- `GET /api/health`
+- `POST /api/auth/demo-login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/control/summary`
+- `POST /api/sessions/request`
+- `GET /api/sessions/me`
+- `POST /api/sessions/:sessionId/end`
+
+### Run Step 1 backend locally
+
+```bash
+npm install
+npm run serve
+```
+
+Then use a REST client or curl to test the queue flow.

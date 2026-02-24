@@ -44,7 +44,7 @@ const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const db = readDb();
-  const session = db.sessions.find((entry) => entry.token === token);
+  const session = db.authSessions.find((entry) => entry.token === token);
 
   if (!session) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -57,6 +57,48 @@ const authMiddleware = (req, res, next) => {
 
   req.auth = { token, user };
   next();
+};
+
+const planRank = {
+  free: 0,
+  performance: 1,
+  ultimate: 2
+};
+
+const canAccessGame = (userPlan, gameMinPlan) => {
+  return (planRank[userPlan] ?? 0) >= (planRank[gameMinPlan] ?? 0);
+};
+
+const getUserSettings = (db, userId) => {
+  return (
+    db.settingsByUserId[userId] || {
+      preferredDevice: "PC",
+      networkProfile: "Balanced",
+      selectedPlan: "free"
+    }
+  );
+};
+
+const promoteQueue = (db) => {
+  const host = db.gameHosts.find((entry) => entry.status === "online" && entry.activeSessions < entry.capacity);
+  if (!host) {
+    return;
+  }
+
+  const next = db.sessionQueue.shift();
+  if (!next) {
+    return;
+  }
+
+  const session = db.sessions.find((entry) => entry.id === next.sessionId);
+  if (!session) {
+    return;
+  }
+
+  session.status = "active";
+  session.hostId = host.id;
+  session.startedAt = new Date().toISOString();
+  host.activeSessions += 1;
 };
 
 app.get("/api/health", (_req, res) => {
@@ -73,6 +115,21 @@ app.get("/api/plans", (_req, res) => {
   res.json(db.plans);
 });
 
+app.get("/api/control/summary", authMiddleware, (req, res) => {
+  const db = readDb();
+  const userSettings = getUserSettings(db, req.auth.user.id);
+  const queuePosition = db.sessionQueue.findIndex((entry) => entry.userId === req.auth.user.id);
+
+  res.json({
+    user: req.auth.user,
+    settings: userSettings,
+    activeSessions: db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "active"),
+    queuedSessions: db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "queued"),
+    queuePosition: queuePosition >= 0 ? queuePosition + 1 : null,
+    hosts: db.gameHosts
+  });
+});
+
 app.post("/api/auth/demo-login", (_req, res) => {
   const db = readDb();
   const user = db.users[0];
@@ -82,8 +139,8 @@ app.post("/api/auth/demo-login", (_req, res) => {
   }
 
   const token = crypto.randomBytes(24).toString("hex");
-  db.sessions = db.sessions.filter((entry) => entry.userId !== user.id);
-  db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
+  db.authSessions = db.authSessions.filter((entry) => entry.userId !== user.id);
+  db.authSessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
   writeDb(db);
 
   res.json({ token, user });
@@ -91,7 +148,7 @@ app.post("/api/auth/demo-login", (_req, res) => {
 
 app.post("/api/auth/logout", authMiddleware, (req, res) => {
   const db = readDb();
-  db.sessions = db.sessions.filter((entry) => entry.token !== req.auth.token);
+  db.authSessions = db.authSessions.filter((entry) => entry.token !== req.auth.token);
   writeDb(db);
   res.json({ success: true });
 });
@@ -152,6 +209,117 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
   writeDb(db);
 
   res.json(db.settingsByUserId[req.auth.user.id]);
+});
+
+app.post("/api/sessions/request", authMiddleware, (req, res) => {
+  const { gameSlug } = req.body || {};
+  if (!gameSlug) {
+    return res.status(400).json({ error: "gameSlug is required" });
+  }
+
+  const db = readDb();
+  const game = db.games.find((entry) => entry.slug === gameSlug);
+  if (!game) {
+    return res.status(404).json({ error: "Game not found" });
+  }
+
+  const settings = getUserSettings(db, req.auth.user.id);
+  if (!canAccessGame(settings.selectedPlan, game.minPlan)) {
+    return res.status(403).json({
+      error: "Plan upgrade required",
+      requiredPlan: game.minPlan,
+      selectedPlan: settings.selectedPlan
+    });
+  }
+
+  const existing = db.sessions.find(
+    (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active")
+  );
+  if (existing) {
+    return res.status(409).json({ error: "User already has an active or queued session", session: existing });
+  }
+
+  const host = db.gameHosts.find((entry) => entry.status === "online" && entry.activeSessions < entry.capacity);
+  const id = `sess_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const session = {
+    id,
+    userId: req.auth.user.id,
+    gameSlug: game.slug,
+    gameTitle: game.title,
+    plan: settings.selectedPlan,
+    status: host ? "active" : "queued",
+    hostId: host ? host.id : null,
+    requestedAt: new Date().toISOString(),
+    startedAt: host ? new Date().toISOString() : null,
+    endedAt: null
+  };
+
+  db.sessions.push(session);
+
+  if (host) {
+    host.activeSessions += 1;
+  } else {
+    db.sessionQueue.push({ sessionId: session.id, userId: req.auth.user.id, requestedAt: session.requestedAt });
+  }
+
+  writeDb(db);
+
+  const queuePosition =
+    session.status === "queued"
+      ? db.sessionQueue.findIndex((entry) => entry.sessionId === session.id) + 1
+      : null;
+
+  res.json({ session, queuePosition });
+});
+
+app.get("/api/sessions/me", authMiddleware, (req, res) => {
+  const db = readDb();
+  const sessions = db.sessions.filter(
+    (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active")
+  );
+
+  const hydrated = sessions.map((entry) => {
+    const queuePosition =
+      entry.status === "queued"
+        ? db.sessionQueue.findIndex((queueEntry) => queueEntry.sessionId === entry.id) + 1
+        : null;
+    return { ...entry, queuePosition: queuePosition > 0 ? queuePosition : null };
+  });
+
+  res.json(hydrated);
+});
+
+app.post("/api/sessions/:sessionId/end", authMiddleware, (req, res) => {
+  const { sessionId } = req.params;
+  const db = readDb();
+  const session = db.sessions.find((entry) => entry.id === sessionId && entry.userId === req.auth.user.id);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status === "ended") {
+    return res.json({ session });
+  }
+
+  if (session.status === "active" && session.hostId) {
+    const host = db.gameHosts.find((entry) => entry.id === session.hostId);
+    if (host) {
+      host.activeSessions = Math.max(0, host.activeSessions - 1);
+    }
+  }
+
+  if (session.status === "queued") {
+    db.sessionQueue = db.sessionQueue.filter((entry) => entry.sessionId !== session.id);
+  }
+
+  session.status = "ended";
+  session.endedAt = new Date().toISOString();
+
+  promoteQueue(db);
+  writeDb(db);
+
+  res.json({ session });
 });
 
 app.get("/api/launch/estimate", (req, res) => {
