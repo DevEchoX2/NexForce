@@ -7,7 +7,36 @@ const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
 
+const defaultAllowedOrigins = [
+  "https://devechox2.github.io",
+  "https://wafflev1.me",
+  "http://wafflev1.me",
+  "https://nexforce-production.up.railway.app"
+];
+
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+  .concat(defaultAllowedOrigins);
+
 app.use(express.json());
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization || "";

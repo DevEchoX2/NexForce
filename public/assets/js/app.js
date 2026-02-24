@@ -13,7 +13,20 @@ const setStoredValue = (key, value) => {
   localStorage.setItem(key, value);
 };
 
-const API_BASE = "/api";
+const resolveApiBase = () => {
+  if (window.NEXFORCE_API_BASE) {
+    return String(window.NEXFORCE_API_BASE).replace(/\/$/, "");
+  }
+
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") {
+    return "/api";
+  }
+
+  return "https://nexforce-production.up.railway.app/api";
+};
+
+const API_BASE = resolveApiBase();
 
 export const appState = {
   user: null,

@@ -100,6 +100,20 @@ Open:
 
 `http://localhost:5500`
 
+## If you cannot edit DNS
+
+You can still run production with a split setup:
+
+- Frontend on GitHub Pages/custom static host
+- Backend API on Railway
+
+The frontend now auto-uses:
+
+- Localhost: `http://localhost:5500/api`
+- Non-local hosts: `https://nexforce-production.up.railway.app/api`
+
+So even without DNS control over `wafflev1.me`, the app can call the Railway backend directly.
+
 ## Notes
 
 This is now a real full-stack web app baseline, but it is still not a real cloud-streaming infrastructure. GPU orchestration, WebRTC media transport, commercial billing, and game entitlement integrations are still future phases.
