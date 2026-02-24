@@ -279,6 +279,20 @@ Step 12 adds runtime policy control endpoints:
 - Fetch audit history via `GET /api/control/scheduler/events?limit=...`
 - Reset counters via `POST /api/control/scheduler/metrics/reset`
 
+## Step 13 (playable runtime) — final roadmap step
+
+Step 13 completes the current roadmap by replacing the old play placeholder with a real in-browser runtime in `play.html`:
+
+- Instant playable session surface after launch handoff
+- Game-mode routing by selected title (`Roblox` → collector mode, `Fortnite` → target mode)
+- Live HUD with score, timer, and runtime controls (start/reset)
+
+This closes the current implementation roadmap at Step 13.
+
+### Important boundary
+
+Running official Roblox/Fortnite cloud streams requires external proprietary platform integrations and licensing. Current implementation provides a real playable in-browser runtime so launches are functional while those external integrations are pending.
+
 ### Step 10 host-agent environment variables
 
 - `NEXFORCE_AGENT_FREE_RESERVED_MIN` (default: `0`)
