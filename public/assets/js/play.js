@@ -36,6 +36,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const createRuntime = (profile) => {
   const canvas = document.querySelector("[data-game-canvas]");
+  const stage = document.querySelector("[data-runtime-stage]");
   if (!canvas) {
     return { start: () => {}, reset: () => {} };
   }
@@ -60,6 +61,7 @@ const createRuntime = (profile) => {
     ended: false,
     score: 0,
     endAt: 0,
+    remainingMs: profile.durationSec * 1000,
     keys: new Set(),
     player: { x: 640, y: 360, radius: 20, speed: 430 },
     orb: { x: 250, y: 220, radius: 14 },
@@ -70,9 +72,12 @@ const createRuntime = (profile) => {
 
   const updateHud = () => {
     if (scoreEl) scoreEl.textContent = String(state.score);
-    const remaining = state.started ? Math.max(0, Math.ceil((state.endAt - performance.now()) / 1000)) : profile.durationSec;
+    const remainingMs = state.started ? Math.max(0, state.endAt - performance.now()) : state.remainingMs;
+    const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
     if (timeEl) timeEl.textContent = `${remaining}s`;
   };
+
+  const isFullscreen = () => document.fullscreenElement === stage || document.fullscreenElement === canvas;
 
   const randomOrb = () => {
     state.orb.x = Math.floor(Math.random() * (canvas.width - 100)) + 50;
@@ -83,6 +88,7 @@ const createRuntime = (profile) => {
     state.started = false;
     state.ended = false;
     state.score = 0;
+    state.remainingMs = profile.durationSec * 1000;
     state.player.x = 640;
     state.player.y = 360;
     state.target.x = 620;
@@ -90,7 +96,7 @@ const createRuntime = (profile) => {
     state.target.vx = 210;
     state.target.vy = 170;
     randomOrb();
-    if (overlay) overlay.textContent = "Press Start to begin your session.";
+    if (overlay) overlay.textContent = "Fullscreen is required. Press Start to enter fullscreen and begin.";
     if (overlay) overlay.classList.remove("hidden");
     if (startBtn) startBtn.textContent = "Start";
     updateHud();
@@ -99,6 +105,7 @@ const createRuntime = (profile) => {
   const endRun = () => {
     state.started = false;
     state.ended = true;
+    state.remainingMs = 0;
     if (overlay) {
       overlay.textContent = `Session complete. Final score: ${state.score}`;
       overlay.classList.remove("hidden");
@@ -202,21 +209,47 @@ const createRuntime = (profile) => {
   };
 
   const start = () => {
-    if (state.started && !state.ended) {
+    const beginRun = () => {
+      if (state.started && !state.ended) {
+        return;
+      }
+
+      if (state.ended) {
+        resetState();
+      }
+
+      state.started = true;
+      state.endAt = performance.now() + state.remainingMs;
+      state.previousTime = 0;
+
+      if (overlay) overlay.classList.add("hidden");
+      if (startBtn) startBtn.textContent = "Running";
+      updateHud();
+    };
+
+    if (isFullscreen()) {
+      beginRun();
       return;
     }
 
-    if (state.ended) {
-      resetState();
+    const target = stage || canvas;
+    if (target?.requestFullscreen) {
+      target
+        .requestFullscreen()
+        .then(() => beginRun())
+        .catch(() => {
+          if (overlay) {
+            overlay.textContent = "Fullscreen was blocked. Allow fullscreen to play.";
+            overlay.classList.remove("hidden");
+          }
+        });
+      return;
     }
 
-    state.started = true;
-    state.endAt = performance.now() + profile.durationSec * 1000;
-    state.previousTime = 0;
-
-    if (overlay) overlay.classList.add("hidden");
-    if (startBtn) startBtn.textContent = "Running";
-    updateHud();
+    if (overlay) {
+      overlay.textContent = "Fullscreen is not supported in this browser.";
+      overlay.classList.remove("hidden");
+    }
   };
 
   if (profile.mode === "shooter") {
@@ -253,6 +286,21 @@ const createRuntime = (profile) => {
 
   startBtn?.addEventListener("click", start);
   resetBtn?.addEventListener("click", resetState);
+
+  document.addEventListener("fullscreenchange", () => {
+    if (!isFullscreen() && state.started && !state.ended) {
+      state.remainingMs = Math.max(0, state.endAt - performance.now());
+      state.started = false;
+      if (overlay) {
+        overlay.textContent = "Fullscreen is required. Press Start to resume.";
+        overlay.classList.remove("hidden");
+      }
+      if (startBtn) {
+        startBtn.textContent = "Resume";
+      }
+      updateHud();
+    }
+  });
 
   resetState();
   state.rafId = requestAnimationFrame(loop);

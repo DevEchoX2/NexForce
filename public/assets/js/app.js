@@ -3,6 +3,7 @@ const STORAGE_KEYS = {
   selectedPlan: "nexforce.selectedPlan",
   recentGame: "nexforce.recentGame",
   authUser: "nexforce.authUser",
+  authToken: "nexforce.authToken",
   preferredDevice: "nexforce.preferredDevice",
   networkProfile: "nexforce.networkProfile",
   activeGame: "nexforce.activeGame"
@@ -54,6 +55,16 @@ export const appState = {
     }
     setStoredValue(STORAGE_KEYS.authUser, JSON.stringify(value));
   },
+  get authToken() {
+    return getStoredValue(STORAGE_KEYS.authToken, "");
+  },
+  set authToken(value) {
+    if (!value) {
+      localStorage.removeItem(STORAGE_KEYS.authToken);
+      return;
+    }
+    setStoredValue(STORAGE_KEYS.authToken, value);
+  },
   get preferredDevice() {
     return getStoredValue(STORAGE_KEYS.preferredDevice, "PC");
   },
@@ -72,6 +83,47 @@ export const appState = {
   set activeGame(value) {
     setStoredValue(STORAGE_KEYS.activeGame, value);
   }
+};
+
+const slugFromGame = (name = "") =>
+  String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+
+const getApiBase = () => {
+  if (window.location.protocol === "file:") {
+    return "http://localhost:5500";
+  }
+  return window.location.origin;
+};
+
+export const apiRequest = async (path, { method = "GET", body, auth = false } = {}) => {
+  const headers = {
+    "Content-Type": "application/json"
+  };
+
+  if (auth && appState.authToken) {
+    headers.Authorization = `Bearer ${appState.authToken}`;
+  }
+
+  const response = await fetch(`${getApiBase()}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await response.text();
+  const parsed = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    const error = new Error(parsed.error || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.payload = parsed;
+    throw error;
+  }
+
+  return parsed;
 };
 
 export const loadJson = async (path) => {
@@ -97,15 +149,46 @@ export const initLaunchModal = () => {
   const latencyEl = modal.querySelector("[data-latency]");
   const fpsEl = modal.querySelector("[data-fps]");
   const etaEl = modal.querySelector("[data-eta]");
+  const statusEl = modal.querySelector("[data-launch-status]");
 
   let intervalRef;
   let launchRedirected = false;
+  let trackedSessionId = null;
 
   const stopSimulation = () => {
     if (intervalRef) {
       clearInterval(intervalRef);
       intervalRef = undefined;
     }
+  };
+
+  const stopTracking = () => {
+    trackedSessionId = null;
+  };
+
+  const pollUntilActive = async (gameSlug) => {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const sessions = await apiRequest("/api/sessions/me", { auth: true });
+      const tracked = sessions.find((entry) => entry.id === trackedSessionId);
+
+      if (!tracked) {
+        continue;
+      }
+
+      if (queueEl && tracked.queuePosition) {
+        queueEl.textContent = String(tracked.queuePosition);
+      }
+      if (etaEl && tracked.queuePosition) {
+        etaEl.textContent = `${Math.max(1, tracked.queuePosition)} min`;
+      }
+
+      if (tracked.status === "active") {
+        return tracked;
+      }
+    }
+
+    return null;
   };
 
   const runSimulation = async () => {
@@ -117,30 +200,82 @@ export const initLaunchModal = () => {
 
     queueEl.textContent = String(queue);
     etaEl.textContent = `${eta} min`;
+    if (statusEl) {
+      statusEl.textContent = "Connecting...";
+    }
 
     stopSimulation();
     launchRedirected = false;
-    intervalRef = setInterval(() => {
-      queue = Math.max(0, queue - (Math.floor(Math.random() * 3) + 1));
-      eta = Math.max(0, Math.ceil(queue / 3));
-      const latencyBase = selectedPlan === "ultimate" ? 10 : selectedPlan === "performance" ? 16 : 22;
-      const fpsBase = selectedPlan === "ultimate" ? 116 : selectedPlan === "performance" ? 100 : 82;
-      const latency = Math.floor(Math.random() * 7) + latencyBase;
-      const fps = Math.floor(Math.random() * 18) + fpsBase;
+    const gameName = appState.activeGame || "Fortnite";
+    const gameSlug = slugFromGame(gameName);
 
-      queueEl.textContent = String(queue);
-      etaEl.textContent = queue === 0 ? "Launching..." : `${eta} min`;
-      latencyEl.textContent = `${latency} ms`;
-      fpsEl.textContent = `${fps} FPS`;
-
-      if (queue === 0 && !launchRedirected) {
-        launchRedirected = true;
-        setTimeout(() => {
-          const game = encodeURIComponent(appState.activeGame || "Fortnite");
-          window.location.href = `./play.html?game=${game}`;
-        }, 1200);
+    const ensureSignedIn = async () => {
+      if (appState.authToken) {
+        return;
       }
-    }, 1200);
+      await signInDemo();
+    };
+
+    try {
+      await ensureSignedIn();
+      const requestResult = await apiRequest("/api/sessions/request", {
+        method: "POST",
+        auth: true,
+        body: {
+          gameSlug
+        }
+      });
+
+      trackedSessionId = requestResult.session?.id || null;
+
+      let activeSession = requestResult.session;
+      if (requestResult.session?.status === "queued") {
+        if (statusEl) {
+          statusEl.textContent = "Queued";
+        }
+        if (queueEl && requestResult.queuePosition) {
+          queueEl.textContent = String(requestResult.queuePosition);
+        }
+        if (etaEl && requestResult.queuePosition) {
+          etaEl.textContent = `${Math.max(1, requestResult.queuePosition)} min`;
+        }
+        const resolved = await pollUntilActive(gameSlug);
+        if (!resolved) {
+          throw new Error("Queue timed out. Try again.");
+        }
+        activeSession = resolved;
+      }
+
+      if (statusEl) {
+        statusEl.textContent = "Issuing launch ticket...";
+      }
+
+      const ticket = await apiRequest("/api/launch/ticket", {
+        method: "POST",
+        auth: true,
+        body: {
+          gameSlug,
+          sessionId: activeSession.id
+        }
+      });
+
+      if (!launchRedirected) {
+        launchRedirected = true;
+        const game = encodeURIComponent(gameName);
+        const ticketId = encodeURIComponent(ticket.id || "");
+        window.location.href = `./play.html?game=${game}&ticket=${ticketId}`;
+      }
+    } catch (error) {
+      if (statusEl) {
+        statusEl.textContent = error.message || "Launch failed";
+      }
+      if (etaEl) {
+        etaEl.textContent = "Retry";
+      }
+      console.error(error);
+    } finally {
+      stopTracking();
+    }
   };
 
   const openModal = (selectedGame = "Cloud Session") => {
@@ -156,6 +291,7 @@ export const initLaunchModal = () => {
     modal.classList.add("hidden");
     document.body.classList.remove("overflow-hidden");
     stopSimulation();
+    stopTracking();
   };
 
   closeButtons.forEach((button) => {
@@ -188,13 +324,31 @@ export const initLaunchButtons = (openModal) => {
 export const toTitle = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 export const signOut = () => {
+  if (appState.authToken) {
+    apiRequest("/api/auth/logout", {
+      method: "POST",
+      auth: true
+    }).catch(() => {});
+  }
   appState.authUser = null;
+  appState.authToken = "";
 };
 
 export const signInDemo = async () => {
-  const user = await loadJson("./data/mock-user.json");
-  appState.authUser = user;
-  return user;
+  try {
+    const result = await apiRequest("/api/auth/demo-login", {
+      method: "POST",
+      body: {}
+    });
+    appState.authToken = result.token;
+    appState.authUser = result.user;
+    return result.user;
+  } catch {
+    const user = await loadJson("./data/mock-user.json");
+    appState.authToken = "";
+    appState.authUser = user;
+    return user;
+  }
 };
 
 export const initAuthShell = () => {
