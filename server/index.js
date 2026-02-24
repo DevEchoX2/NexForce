@@ -8,6 +8,7 @@ const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
+const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -25,6 +26,34 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .concat(defaultAllowedOrigins);
 
 const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
+const defaultSchedulerPolicy = {
+  maxActiveSessionsPerUser: 1,
+  maxQueuedSessionsPerUser: 1,
+  agingBoostMinutes: 10,
+  agingBoostPerStep: 1,
+  eventRetentionLimit: SCHEDULER_EVENT_LIMIT
+};
+
+const createEmptySchedulerMetrics = () => ({
+  since: new Date().toISOString(),
+  queuedTotal: 0,
+  assignmentsTotal: 0,
+  timedOutTotal: 0,
+  rejections: {
+    concurrency_limit: 0,
+    plan_restricted: 0,
+    no_capacity: 0
+  },
+  waitByPlanSec: {
+    free: { count: 0, total: 0, max: 0 },
+    performance: { count: 0, total: 0, max: 0 },
+    ultimate: { count: 0, total: 0, max: 0 }
+  },
+  lastQueueAt: null,
+  lastAssignmentAt: null,
+  lastTimeoutAt: null
+});
+
 const matchmakerState = {
   startedAt: new Date().toISOString(),
   isRunning: false,
@@ -35,6 +64,122 @@ const matchmakerState = {
   lastWriteAt: null,
   lastErrorAt: null,
   lastError: null
+};
+
+const asNonNegativeInt = (value, fallback = 0) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const normalizeHostSlotPolicy = (slotPolicy = {}) => {
+  return {
+    freeReservedMin: asNonNegativeInt(slotPolicy.freeReservedMin, 0),
+    performanceReservedMin: asNonNegativeInt(slotPolicy.performanceReservedMin, 0),
+    ultimateReservedMin: asNonNegativeInt(slotPolicy.ultimateReservedMin, 0)
+  };
+};
+
+const getSchedulerPolicy = (db) => {
+  const merged = {
+    ...defaultSchedulerPolicy,
+    ...(db.schedulerPolicy || {})
+  };
+
+  return {
+    maxActiveSessionsPerUser: Math.max(1, asNonNegativeInt(merged.maxActiveSessionsPerUser, 1)),
+    maxQueuedSessionsPerUser: Math.max(1, asNonNegativeInt(merged.maxQueuedSessionsPerUser, 1)),
+    agingBoostMinutes: Math.max(1, asNonNegativeInt(merged.agingBoostMinutes, 10)),
+    agingBoostPerStep: Math.max(1, asNonNegativeInt(merged.agingBoostPerStep, 1)),
+    eventRetentionLimit: Math.max(50, asNonNegativeInt(merged.eventRetentionLimit, SCHEDULER_EVENT_LIMIT))
+  };
+};
+
+const getSchedulerMetrics = (db) => {
+  if (!db.schedulerMetrics) {
+    db.schedulerMetrics = createEmptySchedulerMetrics();
+  }
+
+  if (!db.schedulerMetrics.since) {
+    db.schedulerMetrics.since = new Date().toISOString();
+  }
+
+  return db.schedulerMetrics;
+};
+
+const appendSchedulerEvent = (db, type, details = {}) => {
+  const policy = getSchedulerPolicy(db);
+  if (!Array.isArray(db.schedulerEvents)) {
+    db.schedulerEvents = [];
+  }
+
+  db.schedulerEvents.push({
+    id: `evt_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+    at: new Date().toISOString(),
+    type,
+    details
+  });
+
+  if (db.schedulerEvents.length > policy.eventRetentionLimit) {
+    db.schedulerEvents.splice(0, db.schedulerEvents.length - policy.eventRetentionLimit);
+  }
+};
+
+const recordSchedulerRejection = (db, reason, details = {}) => {
+  const metrics = getSchedulerMetrics(db);
+  metrics.rejections[reason] = (metrics.rejections[reason] || 0) + 1;
+  appendSchedulerEvent(db, "rejection", { reason, ...details });
+};
+
+const recordQueueJoin = (db, session) => {
+  const metrics = getSchedulerMetrics(db);
+  metrics.queuedTotal += 1;
+  metrics.lastQueueAt = new Date().toISOString();
+  appendSchedulerEvent(db, "queue_join", {
+    sessionId: session.id,
+    userId: session.userId,
+    plan: session.plan,
+    gameSlug: session.gameSlug
+  });
+};
+
+const recordAssignment = (db, session, host) => {
+  const metrics = getSchedulerMetrics(db);
+  metrics.assignmentsTotal += 1;
+  metrics.lastAssignmentAt = new Date().toISOString();
+
+  const planBucket = metrics.waitByPlanSec[session.plan] || { count: 0, total: 0, max: 0 };
+  const requestedMs = new Date(session.requestedAt).getTime();
+  const startedMs = new Date(session.startedAt).getTime();
+  if (Number.isFinite(requestedMs) && Number.isFinite(startedMs) && startedMs >= requestedMs) {
+    const waitSec = Math.floor((startedMs - requestedMs) / 1000);
+    planBucket.count += 1;
+    planBucket.total += waitSec;
+    planBucket.max = Math.max(planBucket.max, waitSec);
+    metrics.waitByPlanSec[session.plan] = planBucket;
+  }
+
+  appendSchedulerEvent(db, "assignment", {
+    sessionId: session.id,
+    userId: session.userId,
+    hostId: host.id,
+    plan: session.plan,
+    assignedBy: session.assignedBy
+  });
+};
+
+const recordTimeout = (db, session) => {
+  const metrics = getSchedulerMetrics(db);
+  metrics.timedOutTotal += 1;
+  metrics.lastTimeoutAt = new Date().toISOString();
+  appendSchedulerEvent(db, "session_timeout", {
+    sessionId: session.id,
+    userId: session.userId,
+    plan: session.plan,
+    hostId: session.hostId
+  });
 };
 
 app.use(express.json());
@@ -174,6 +319,50 @@ const isHostCompatible = (host, session) => {
   return true;
 };
 
+const getHostPlanActiveCounts = (db, hostId) => {
+  const counts = { free: 0, performance: 0, ultimate: 0 };
+
+  db.sessions.forEach((session) => {
+    if (session.status !== "active" || session.hostId !== hostId) {
+      return;
+    }
+
+    if (counts[session.plan] !== undefined) {
+      counts[session.plan] += 1;
+    }
+  });
+
+  return counts;
+};
+
+const canHostAcceptPlan = (db, host, plan) => {
+  const policy = normalizeHostSlotPolicy(host.slotPolicy);
+  const activeCounts = getHostPlanActiveCounts(db, host.id);
+  const availableSlots = Math.max(0, host.capacity - host.activeSessions);
+
+  let reservedForHigherTiers = 0;
+  let activeHigherTiers = 0;
+
+  if (plan === "free") {
+    reservedForHigherTiers = policy.performanceReservedMin + policy.ultimateReservedMin;
+    activeHigherTiers = activeCounts.performance + activeCounts.ultimate;
+  } else if (plan === "performance") {
+    reservedForHigherTiers = policy.ultimateReservedMin;
+    activeHigherTiers = activeCounts.ultimate;
+  }
+
+  const remainingReservedNeed = Math.max(0, reservedForHigherTiers - activeHigherTiers);
+  return availableSlots > remainingReservedNeed;
+};
+
+const isHostCompatibleForSession = (db, host, session) => {
+  if (!isHostCompatible(host, session)) {
+    return false;
+  }
+
+  return canHostAcceptPlan(db, host, session.plan);
+};
+
 const getAssignmentReason = (host, session) => {
   const loadRatio = host.capacity > 0 ? (host.activeSessions / host.capacity).toFixed(2) : "1.00";
   const regionLabel = session.preferredRegion ? `${host.region === session.preferredRegion ? "region_match" : "region_fallback"}` : "no_region_pref";
@@ -258,6 +447,12 @@ const reconcileHostsAndSessions = (db) => {
       changed = true;
     }
 
+    const normalizedSlotPolicy = normalizeHostSlotPolicy(host.slotPolicy);
+    if (JSON.stringify(host.slotPolicy || {}) !== JSON.stringify(normalizedSlotPolicy)) {
+      host.slotPolicy = normalizedSlotPolicy;
+      changed = true;
+    }
+
     const previousStatus = host.status;
     if (!isHostFresh(host)) {
       host.status = "offline";
@@ -318,6 +513,7 @@ const enforceSessionDurationLimits = (db) => {
     session.status = "ended";
     session.endedAt = nowIso;
     session.endReason = "session_timeout";
+    recordTimeout(db, session);
     session.hostId = null;
     changed = true;
     timedOutCount += 1;
@@ -328,7 +524,7 @@ const enforceSessionDurationLimits = (db) => {
 
 const getAvailableHostForSession = (db, session) => {
   return db.gameHosts
-    .filter((host) => isHostCompatible(host, session))
+    .filter((host) => isHostCompatibleForSession(db, host, session))
     .sort((left, right) => {
       const leftRegionScore = session.preferredRegion && left.region === session.preferredRegion ? 0 : 1;
       const rightRegionScore = session.preferredRegion && right.region === session.preferredRegion ? 0 : 1;
@@ -348,11 +544,27 @@ const getAvailableHostForSession = (db, session) => {
 };
 
 const sortQueue = (db) => {
-  db.sessionQueue.sort((left, right) => {
-    const rankDelta = getPlanRank(right.plan) - getPlanRank(left.plan);
-    if (rankDelta !== 0) {
-      return rankDelta;
+  const schedulerPolicy = getSchedulerPolicy(db);
+  const nowMs = Date.now();
+
+  const score = (entry) => {
+    const base = getPlanRank(entry.plan) * 1000;
+    const requestedAtMs = new Date(entry.requestedAt).getTime();
+    if (!Number.isFinite(requestedAtMs)) {
+      return base;
     }
+
+    const waitedMinutes = Math.max(0, (nowMs - requestedAtMs) / (1000 * 60));
+    const agingSteps = Math.floor(waitedMinutes / schedulerPolicy.agingBoostMinutes);
+    return base + agingSteps * schedulerPolicy.agingBoostPerStep;
+  };
+
+  db.sessionQueue.sort((left, right) => {
+    const scoreDelta = score(right) - score(left);
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
+
     return new Date(left.requestedAt).getTime() - new Date(right.requestedAt).getTime();
   });
 };
@@ -390,6 +602,7 @@ const promoteQueue = (db) => {
       session.assignedBy = getAssignmentReason(host, session);
       assignConnection(session);
       host.activeSessions += 1;
+      recordAssignment(db, session, host);
       changed = true;
       promotedCount += 1;
       assignedInPass = true;
@@ -438,7 +651,8 @@ const runMatchmakerTick = ({ forceWrite = false } = {}) => {
       timedOutCount,
       queueDepth: db.sessionQueue.length,
       activeSessions: db.sessions.filter((entry) => entry.status === "active").length,
-      onlineHosts: db.gameHosts.filter((entry) => entry.status === "online").length
+      onlineHosts: db.gameHosts.filter((entry) => entry.status === "online").length,
+      assignmentsTotal: getSchedulerMetrics(db).assignmentsTotal
     };
   } catch (error) {
     matchmakerState.lastErrorAt = new Date().toISOString();
@@ -476,7 +690,7 @@ app.get("/api/hosts", authMiddleware, (_req, res) => {
 });
 
 app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
-  const { hostId, name, region = "local", capacity = 1, capabilities, mode } = req.body || {};
+  const { hostId, name, region = "local", capacity = 1, capabilities, mode, slotPolicy } = req.body || {};
   if (!hostId || !name) {
     return res.status(400).json({ error: "hostId and name are required" });
   }
@@ -490,11 +704,17 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     existing.capacity = Number(capacity) > 0 ? Number(capacity) : 1;
     existing.capabilities = normalizeHostCapabilities(capabilities || existing.capabilities);
     existing.mode = normalizeHostMode(mode || existing.mode);
+    existing.slotPolicy = normalizeHostSlotPolicy(slotPolicy || existing.slotPolicy);
     existing.status = "online";
     if (existing.mode === hostMode.maintenance) {
       existing.status = "offline";
     }
     existing.lastHeartbeatAt = new Date().toISOString();
+    appendSchedulerEvent(db, "host_register", {
+      hostId: existing.id,
+      region: existing.region,
+      mode: existing.mode
+    });
     promoteQueue(db);
     writeDb(db);
     return res.json(existing);
@@ -509,6 +729,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     status: "online",
     mode: normalizeHostMode(mode),
     capabilities: normalizeHostCapabilities(capabilities),
+    slotPolicy: normalizeHostSlotPolicy(slotPolicy),
     lastHeartbeatAt: new Date().toISOString()
   };
 
@@ -517,6 +738,11 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
   }
 
   db.gameHosts.push(host);
+  appendSchedulerEvent(db, "host_register", {
+    hostId: host.id,
+    region: host.region,
+    mode: host.mode
+  });
   promoteQueue(db);
   writeDb(db);
   res.json(host);
@@ -566,6 +792,29 @@ app.put("/api/hosts/:hostId/capabilities", hostAuthMiddleware, (req, res) => {
   }
 
   host.capabilities = normalizeHostCapabilities(req.body || host.capabilities);
+  appendSchedulerEvent(db, "host_capabilities_updated", {
+    hostId: host.id,
+    capabilities: host.capabilities
+  });
+  promoteQueue(db);
+  writeDb(db);
+  res.json({ success: true, host });
+});
+
+app.put("/api/hosts/:hostId/policy", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.slotPolicy = normalizeHostSlotPolicy(req.body || host.slotPolicy);
+  appendSchedulerEvent(db, "host_policy_updated", {
+    hostId: host.id,
+    slotPolicy: host.slotPolicy
+  });
   promoteQueue(db);
   writeDb(db);
   res.json({ success: true, host });
@@ -590,6 +839,12 @@ app.put("/api/hosts/:hostId/mode", hostAuthMiddleware, (req, res) => {
     host.status = "online";
     host.lastHeartbeatAt = new Date().toISOString();
   }
+
+  appendSchedulerEvent(db, "host_mode_updated", {
+    hostId: host.id,
+    mode: host.mode,
+    status: host.status
+  });
 
   promoteQueue(db);
   writeDb(db);
@@ -712,6 +967,13 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
 
   const settings = getUserSettings(db, req.auth.user.id);
   if (!canAccessGame(settings.selectedPlan, game.minPlan)) {
+    recordSchedulerRejection(db, "plan_restricted", {
+      userId: req.auth.user.id,
+      gameSlug,
+      selectedPlan: settings.selectedPlan,
+      requiredPlan: game.minPlan
+    });
+    writeDb(db);
     return res.status(403).json({
       error: "Plan upgrade required",
       requiredPlan: game.minPlan,
@@ -719,11 +981,36 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
     });
   }
 
-  const existing = db.sessions.find(
-    (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active")
-  );
-  if (existing) {
-    return res.status(409).json({ error: "User already has an active or queued session", session: existing });
+  const schedulerPolicy = getSchedulerPolicy(db);
+  const userActiveSessions = db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "active");
+  const userQueuedSessions = db.sessions.filter((entry) => entry.userId === req.auth.user.id && entry.status === "queued");
+
+  if (userActiveSessions.length >= schedulerPolicy.maxActiveSessionsPerUser) {
+    recordSchedulerRejection(db, "concurrency_limit", {
+      userId: req.auth.user.id,
+      reason: "active_limit",
+      limit: schedulerPolicy.maxActiveSessionsPerUser
+    });
+    writeDb(db);
+    return res.status(409).json({
+      error: "Active session limit reached",
+      limit: schedulerPolicy.maxActiveSessionsPerUser,
+      activeSessions: userActiveSessions
+    });
+  }
+
+  if (userQueuedSessions.length >= schedulerPolicy.maxQueuedSessionsPerUser) {
+    recordSchedulerRejection(db, "concurrency_limit", {
+      userId: req.auth.user.id,
+      reason: "queue_limit",
+      limit: schedulerPolicy.maxQueuedSessionsPerUser
+    });
+    writeDb(db);
+    return res.status(409).json({
+      error: "Queued session limit reached",
+      limit: schedulerPolicy.maxQueuedSessionsPerUser,
+      queuedSessions: userQueuedSessions
+    });
   }
 
   const queuedSessionShape = {
@@ -754,12 +1041,20 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
   if (host) {
     assignConnection(session);
     host.activeSessions += 1;
+    recordAssignment(db, session, host);
   } else {
     db.sessionQueue.push({
       sessionId: session.id,
       userId: req.auth.user.id,
       requestedAt: session.requestedAt,
       plan: session.plan
+    });
+    recordQueueJoin(db, session);
+    recordSchedulerRejection(db, "no_capacity", {
+      userId: req.auth.user.id,
+      sessionId: session.id,
+      plan: session.plan,
+      gameSlug: session.gameSlug
     });
   }
 
@@ -820,6 +1115,11 @@ app.post("/api/sessions/:sessionId/end", authMiddleware, (req, res) => {
 
   session.status = "ended";
   session.endedAt = new Date().toISOString();
+  appendSchedulerEvent(db, "session_ended", {
+    sessionId: session.id,
+    userId: session.userId,
+    endedBy: "user"
+  });
 
   promoteQueue(db);
   writeDb(db);
@@ -850,6 +1150,57 @@ app.get("/api/control/worker", authMiddleware, (_req, res) => {
 app.post("/api/control/worker/tick", authMiddleware, (_req, res) => {
   const result = runMatchmakerTick({ forceWrite: true });
   res.json({ worker: getWorkerSnapshot(), result });
+});
+
+app.get("/api/control/scheduler", authMiddleware, (_req, res) => {
+  const db = readDb();
+  const policy = getSchedulerPolicy(db);
+  const metrics = getSchedulerMetrics(db);
+
+  res.json({
+    policy,
+    metrics,
+    queueDepth: db.sessionQueue.length,
+    activeSessions: db.sessions.filter((entry) => entry.status === "active").length,
+    eventsStored: Array.isArray(db.schedulerEvents) ? db.schedulerEvents.length : 0
+  });
+});
+
+app.get("/api/control/scheduler/events", authMiddleware, (req, res) => {
+  const db = readDb();
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 50));
+  const events = Array.isArray(db.schedulerEvents) ? db.schedulerEvents : [];
+  res.json(events.slice(-limit).reverse());
+});
+
+app.put("/api/control/scheduler/policy", authMiddleware, (req, res) => {
+  const db = readDb();
+  const current = getSchedulerPolicy(db);
+  const payload = req.body || {};
+
+  db.schedulerPolicy = {
+    ...current,
+    ...payload
+  };
+
+  db.schedulerPolicy = getSchedulerPolicy(db);
+  appendSchedulerEvent(db, "scheduler_policy_updated", {
+    updatedBy: req.auth.user.id,
+    policy: db.schedulerPolicy
+  });
+  promoteQueue(db);
+  writeDb(db);
+  res.json(db.schedulerPolicy);
+});
+
+app.post("/api/control/scheduler/metrics/reset", authMiddleware, (req, res) => {
+  const db = readDb();
+  db.schedulerMetrics = createEmptySchedulerMetrics();
+  appendSchedulerEvent(db, "scheduler_metrics_reset", {
+    resetBy: req.auth.user.id
+  });
+  writeDb(db);
+  res.json({ success: true, metrics: db.schedulerMetrics });
 });
 
 app.use(express.static(publicDir));

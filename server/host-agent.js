@@ -13,6 +13,9 @@ const HOST_SUPPORTED_GAMES = (process.env.NEXFORCE_AGENT_SUPPORTED_GAMES || "")
   .split(",")
   .map((entry) => entry.trim())
   .filter(Boolean);
+const HOST_FREE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_FREE_RESERVED_MIN || 0);
+const HOST_PERFORMANCE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_PERFORMANCE_RESERVED_MIN || 0);
+const HOST_ULTIMATE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_ULTIMATE_RESERVED_MIN || 0);
 const HEARTBEAT_INTERVAL_MS = Number(process.env.NEXFORCE_AGENT_HEARTBEAT_MS || 15000);
 const RETRY_BASE_MS = Number(process.env.NEXFORCE_AGENT_RETRY_BASE_MS || 1000);
 const RETRY_MAX_MS = Number(process.env.NEXFORCE_AGENT_RETRY_MAX_MS || 15000);
@@ -109,6 +112,17 @@ const registerHost = async () => {
         supportedGames: HOST_SUPPORTED_GAMES,
         gpuTier: HOST_GPU_TIER,
         maxFps: Number.isFinite(HOST_MAX_FPS) && HOST_MAX_FPS > 0 ? Math.floor(HOST_MAX_FPS) : 60
+      },
+      slotPolicy: {
+        freeReservedMin: Number.isFinite(HOST_FREE_RESERVED_MIN) && HOST_FREE_RESERVED_MIN >= 0 ? Math.floor(HOST_FREE_RESERVED_MIN) : 0,
+        performanceReservedMin:
+          Number.isFinite(HOST_PERFORMANCE_RESERVED_MIN) && HOST_PERFORMANCE_RESERVED_MIN >= 0
+            ? Math.floor(HOST_PERFORMANCE_RESERVED_MIN)
+            : 0,
+        ultimateReservedMin:
+          Number.isFinite(HOST_ULTIMATE_RESERVED_MIN) && HOST_ULTIMATE_RESERVED_MIN >= 0
+            ? Math.floor(HOST_ULTIMATE_RESERVED_MIN)
+            : 0
       }
     })
   });
@@ -217,7 +231,7 @@ const shutdown = async (signal) => {
 
 const bootstrap = async () => {
   console.log(
-    `[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}, mode=${HOST_MODE}, gpuTier=${HOST_GPU_TIER}, maxFps=${HOST_MAX_FPS}`
+    `[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}, mode=${HOST_MODE}, gpuTier=${HOST_GPU_TIER}, maxFps=${HOST_MAX_FPS}, reserves=${HOST_FREE_RESERVED_MIN}/${HOST_PERFORMANCE_RESERVED_MIN}/${HOST_ULTIMATE_RESERVED_MIN}`
   );
 
   try {

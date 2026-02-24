@@ -120,6 +120,7 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/hosts/:hostId/offline` (host key required)
 - `PUT /api/hosts/:hostId/capabilities` (host key required)
 - `PUT /api/hosts/:hostId/mode` (host key required)
+- `PUT /api/hosts/:hostId/policy` (host key required)
 
 Use header: `x-host-key: nexforce-host-key` (or override via `NEXFORCE_HOST_KEY`).
 
@@ -144,6 +145,10 @@ Step 3 is now implemented with a continuous background worker:
 
 - `GET /api/control/worker` (user auth required)
 - `POST /api/control/worker/tick` (user auth required)
+- `GET /api/control/scheduler` (user auth required)
+- `GET /api/control/scheduler/events` (user auth required)
+- `PUT /api/control/scheduler/policy` (user auth required)
+- `POST /api/control/scheduler/metrics/reset` (user auth required)
 
 ## Step 4 (host agent daemon)
 
@@ -228,6 +233,57 @@ Step 7 upgrades matchmaking from load-only to compatibility-aware placement:
 - `NEXFORCE_AGENT_GPU_TIER` (default: `basic`)
 - `NEXFORCE_AGENT_MAX_FPS` (default: `60`)
 - `NEXFORCE_AGENT_SUPPORTED_GAMES` (default: empty, comma-separated slugs)
+
+## Step 8 (fair queue + user concurrency)
+
+Step 8 adds queue fairness and configurable per-user limits:
+
+- Per-user active session limit (`maxActiveSessionsPerUser`)
+- Per-user queued session limit (`maxQueuedSessionsPerUser`)
+- Queue aging boost to reduce starvation (`agingBoostMinutes`, `agingBoostPerStep`)
+
+## Step 9 (scheduler metrics)
+
+Step 9 adds scheduler observability counters:
+
+- Total queued/assigned/timed-out sessions
+- Rejection counters by reason (`concurrency_limit`, `plan_restricted`, `no_capacity`)
+- Per-plan wait-time aggregates (`waitByPlanSec`)
+
+## Step 10 (host slot policy)
+
+Step 10 adds host-level reserved capacity policy for plan-aware admission:
+
+- `slotPolicy.freeReservedMin`
+- `slotPolicy.performanceReservedMin`
+- `slotPolicy.ultimateReservedMin`
+
+Hosts can enforce reserved headroom for higher tiers while still using compatibility + region-aware scheduling.
+
+## Step 11 (scheduler audit events)
+
+Step 11 adds scheduler audit logs (`schedulerEvents`) for operations traceability:
+
+- Queue join
+- Assignment
+- Session timeout
+- Host mode/capability/policy updates
+- Scheduler policy updates and metrics resets
+
+## Step 12 (runtime policy controls)
+
+Step 12 adds runtime policy control endpoints:
+
+- Update scheduler policy via `PUT /api/control/scheduler/policy`
+- Inspect policy + metrics via `GET /api/control/scheduler`
+- Fetch audit history via `GET /api/control/scheduler/events?limit=...`
+- Reset counters via `POST /api/control/scheduler/metrics/reset`
+
+### Step 10 host-agent environment variables
+
+- `NEXFORCE_AGENT_FREE_RESERVED_MIN` (default: `0`)
+- `NEXFORCE_AGENT_PERFORMANCE_RESERVED_MIN` (default: `0`)
+- `NEXFORCE_AGENT_ULTIMATE_RESERVED_MIN` (default: `0`)
 
 ### Run Step 1 backend locally
 

@@ -29,6 +29,11 @@ const defaultDb = {
       activeSessions: 0,
       status: "online",
       mode: "active",
+      slotPolicy: {
+        freeReservedMin: 0,
+        performanceReservedMin: 0,
+        ultimateReservedMin: 0
+      },
       capabilities: {
         supportedGames: [],
         gpuTier: "ultimate",
@@ -36,6 +41,33 @@ const defaultDb = {
       }
     }
   ],
+  schedulerPolicy: {
+    maxActiveSessionsPerUser: 1,
+    maxQueuedSessionsPerUser: 1,
+    agingBoostMinutes: 10,
+    agingBoostPerStep: 1,
+    eventRetentionLimit: 500
+  },
+  schedulerMetrics: {
+    since: null,
+    queuedTotal: 0,
+    assignmentsTotal: 0,
+    timedOutTotal: 0,
+    rejections: {
+      concurrency_limit: 0,
+      plan_restricted: 0,
+      no_capacity: 0
+    },
+    waitByPlanSec: {
+      free: { count: 0, total: 0, max: 0 },
+      performance: { count: 0, total: 0, max: 0 },
+      ultimate: { count: 0, total: 0, max: 0 }
+    },
+    lastQueueAt: null,
+    lastAssignmentAt: null,
+    lastTimeoutAt: null
+  },
+  schedulerEvents: [],
   sessionQueue: [],
   sessions: [],
   plans: [
@@ -162,12 +194,29 @@ const normalizeDb = (data) => {
     normalized.sessionQueue = [];
   }
 
+  if (!normalized.schedulerPolicy || typeof normalized.schedulerPolicy !== "object") {
+    normalized.schedulerPolicy = defaultDb.schedulerPolicy;
+  }
+
+  if (!normalized.schedulerMetrics || typeof normalized.schedulerMetrics !== "object") {
+    normalized.schedulerMetrics = defaultDb.schedulerMetrics;
+  }
+
+  if (!Array.isArray(normalized.schedulerEvents)) {
+    normalized.schedulerEvents = [];
+  }
+
   if (!Array.isArray(normalized.gameHosts) || normalized.gameHosts.length === 0) {
     normalized.gameHosts = defaultDb.gameHosts;
   } else {
     normalized.gameHosts = normalized.gameHosts.map((entry) => ({
       ...entry,
       mode: entry.mode || "active",
+      slotPolicy: {
+        freeReservedMin: Number.isFinite(Number(entry.slotPolicy?.freeReservedMin)) ? Math.max(0, Math.floor(Number(entry.slotPolicy.freeReservedMin))) : 0,
+        performanceReservedMin: Number.isFinite(Number(entry.slotPolicy?.performanceReservedMin)) ? Math.max(0, Math.floor(Number(entry.slotPolicy.performanceReservedMin))) : 0,
+        ultimateReservedMin: Number.isFinite(Number(entry.slotPolicy?.ultimateReservedMin)) ? Math.max(0, Math.floor(Number(entry.slotPolicy.ultimateReservedMin))) : 0
+      },
       capabilities: {
         supportedGames: Array.isArray(entry.capabilities?.supportedGames) ? entry.capabilities.supportedGames : [],
         gpuTier: entry.capabilities?.gpuTier || "basic",
