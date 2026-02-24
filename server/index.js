@@ -22,6 +22,8 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .filter(Boolean)
   .concat(defaultAllowedOrigins);
 
+const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -56,6 +58,14 @@ const authMiddleware = (req, res, next) => {
   }
 
   req.auth = { token, user };
+  next();
+};
+
+const hostAuthMiddleware = (req, res, next) => {
+  const key = req.headers["x-host-key"];
+  if (!key || key !== HOST_KEY) {
+    return res.status(401).json({ error: "Invalid host key" });
+  }
   next();
 };
 
@@ -99,6 +109,10 @@ const promoteQueue = (db) => {
   session.hostId = host.id;
   session.startedAt = new Date().toISOString();
   host.activeSessions += 1;
+  session.connection = {
+    mode: "placeholder",
+    playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`
+  };
 };
 
 app.get("/api/health", (_req, res) => {
@@ -113,6 +127,75 @@ app.get("/api/games", (_req, res) => {
 app.get("/api/plans", (_req, res) => {
   const db = readDb();
   res.json(db.plans);
+});
+
+app.get("/api/hosts", authMiddleware, (_req, res) => {
+  const db = readDb();
+  res.json(db.gameHosts);
+});
+
+app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
+  const { hostId, name, region = "local", capacity = 1 } = req.body || {};
+  if (!hostId || !name) {
+    return res.status(400).json({ error: "hostId and name are required" });
+  }
+
+  const db = readDb();
+  const existing = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (existing) {
+    existing.name = name;
+    existing.region = region;
+    existing.capacity = Number(capacity) > 0 ? Number(capacity) : 1;
+    existing.status = "online";
+    existing.lastHeartbeatAt = new Date().toISOString();
+    writeDb(db);
+    return res.json(existing);
+  }
+
+  const host = {
+    id: hostId,
+    name,
+    region,
+    capacity: Number(capacity) > 0 ? Number(capacity) : 1,
+    activeSessions: 0,
+    status: "online",
+    lastHeartbeatAt: new Date().toISOString()
+  };
+
+  db.gameHosts.push(host);
+  writeDb(db);
+  res.json(host);
+});
+
+app.post("/api/hosts/:hostId/heartbeat", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.status = "online";
+  host.lastHeartbeatAt = new Date().toISOString();
+  writeDb(db);
+
+  res.json({ success: true, host });
+});
+
+app.post("/api/hosts/:hostId/offline", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.status = "offline";
+  writeDb(db);
+  res.json({ success: true, host });
 });
 
 app.get("/api/control/summary", authMiddleware, (req, res) => {
@@ -251,7 +334,11 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
     hostId: host ? host.id : null,
     requestedAt: new Date().toISOString(),
     startedAt: host ? new Date().toISOString() : null,
-    endedAt: null
+    endedAt: null,
+    connection: {
+      mode: "placeholder",
+      playUrl: `/play.html?game=${encodeURIComponent(game.title)}`
+    }
   };
 
   db.sessions.push(session);

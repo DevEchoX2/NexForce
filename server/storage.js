@@ -158,6 +158,11 @@ const normalizeDb = (data) => {
 
   if (!Array.isArray(normalized.gameHosts) || normalized.gameHosts.length === 0) {
     normalized.gameHosts = defaultDb.gameHosts;
+  } else {
+    normalized.gameHosts = normalized.gameHosts.map((entry) => ({
+      ...entry,
+      lastHeartbeatAt: entry.lastHeartbeatAt || null
+    }));
   }
 
   return normalized;

@@ -56,6 +56,7 @@ NexForce/
 - Demo sign-in/profile state uses browser localStorage.
 - Featured games, library filters, and pricing toggle are fully functional.
 - Launch modal queue/latency/FPS simulation runs client-side.
+- When queue reaches launch state, the app transitions to `play.html` as the in-session surface.
 
 ## Run locally
 
@@ -110,6 +111,15 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/sessions/request`
 - `GET /api/sessions/me`
 - `POST /api/sessions/:sessionId/end`
+
+### Step 2 (prototype host integration) endpoints
+
+- `GET /api/hosts` (user auth required)
+- `POST /api/hosts/register` (host key required)
+- `POST /api/hosts/:hostId/heartbeat` (host key required)
+- `POST /api/hosts/:hostId/offline` (host key required)
+
+Use header: `x-host-key: nexforce-host-key` (or override via `NEXFORCE_HOST_KEY`).
 
 ### Run Step 1 backend locally
 

@@ -4,7 +4,8 @@ const STORAGE_KEYS = {
   recentGame: "nexforce.recentGame",
   authUser: "nexforce.authUser",
   preferredDevice: "nexforce.preferredDevice",
-  networkProfile: "nexforce.networkProfile"
+  networkProfile: "nexforce.networkProfile",
+  activeGame: "nexforce.activeGame"
 };
 
 const getStoredValue = (key, fallbackValue) => {
@@ -64,6 +65,12 @@ export const appState = {
   },
   set networkProfile(value) {
     setStoredValue(STORAGE_KEYS.networkProfile, value);
+  },
+  get activeGame() {
+    return getStoredValue(STORAGE_KEYS.activeGame, "Fortnite");
+  },
+  set activeGame(value) {
+    setStoredValue(STORAGE_KEYS.activeGame, value);
   }
 };
 
@@ -92,6 +99,7 @@ export const initLaunchModal = () => {
   const etaEl = modal.querySelector("[data-eta]");
 
   let intervalRef;
+  let launchRedirected = false;
 
   const stopSimulation = () => {
     if (intervalRef) {
@@ -111,6 +119,7 @@ export const initLaunchModal = () => {
     etaEl.textContent = `${eta} min`;
 
     stopSimulation();
+    launchRedirected = false;
     intervalRef = setInterval(() => {
       queue = Math.max(0, queue - (Math.floor(Math.random() * 3) + 1));
       eta = Math.max(0, Math.ceil(queue / 3));
@@ -123,12 +132,21 @@ export const initLaunchModal = () => {
       etaEl.textContent = queue === 0 ? "Launching..." : `${eta} min`;
       latencyEl.textContent = `${latency} ms`;
       fpsEl.textContent = `${fps} FPS`;
+
+      if (queue === 0 && !launchRedirected) {
+        launchRedirected = true;
+        setTimeout(() => {
+          const game = encodeURIComponent(appState.activeGame || "Fortnite");
+          window.location.href = `./play.html?game=${game}`;
+        }, 1200);
+      }
     }, 1200);
   };
 
   const openModal = (selectedGame = "Cloud Session") => {
     gameName.textContent = selectedGame;
     appState.recentGame = selectedGame;
+    appState.activeGame = selectedGame;
     modal.classList.remove("hidden");
     document.body.classList.add("overflow-hidden");
     runSimulation();
