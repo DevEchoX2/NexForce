@@ -5,9 +5,11 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/assets/css/main.css --minify",
     "watch:css": "tailwindcss -i ./src/tailwind.css -o ./public/assets/css/main.css --watch",
-    "serve": "cd public && python3 -m http.server 5500"
+    "serve": "node ./server/index.js",
+    "serve:static": "cd public && python3 -m http.server 5500"
   },
   "devDependencies": {
+    "express": "^4.21.2",
     "tailwindcss": "^3.4.17"
   }
 }

@@ -1,4 +1,13 @@
-import { initAuthShell, initLaunchButtons, initLaunchModal, loadJson, toTitle } from "./app.js";
+import {
+  appState,
+  getGames,
+  getProfileSettings,
+  initAuthShell,
+  initLaunchButtons,
+  initLaunchModal,
+  refreshSession,
+  toTitle
+} from "./app.js";
 
 const renderFilterOptions = (games) => {
   const genreSelect = document.querySelector("[data-genre-filter]");
@@ -57,9 +66,13 @@ const renderGames = (games) => {
 };
 
 const init = async () => {
+  await refreshSession();
+  if (appState.user) {
+    await getProfileSettings().catch(() => {});
+  }
   initAuthShell();
   const launch = initLaunchModal();
-  const games = await loadJson("./data/games.json");
+  const games = await getGames();
   renderFilterOptions(games);
 
   const searchInput = document.querySelector("[data-search]");

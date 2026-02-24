@@ -1,7 +1,14 @@
-import { appState, initAuthShell, signInDemo } from "./app.js";
+import {
+  appState,
+  getProfileSettings,
+  initAuthShell,
+  refreshSession,
+  signInDemo,
+  updateProfileSettings
+} from "./app.js";
 
 const hydrateProfile = () => {
-  const user = appState.authUser;
+  const user = appState.user;
   const nameEl = document.querySelector("[data-profile-name]");
   const emailEl = document.querySelector("[data-profile-email]");
   const statusEl = document.querySelector("[data-profile-status]");
@@ -34,29 +41,40 @@ const initSettingsForm = () => {
     return;
   }
 
-  deviceSelect.value = appState.preferredDevice;
-  networkSelect.value = appState.networkProfile;
+  deviceSelect.value = appState.settings.preferredDevice || "PC";
+  networkSelect.value = appState.settings.networkProfile || "Balanced";
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    appState.preferredDevice = deviceSelect.value;
-    appState.networkProfile = networkSelect.value;
+    await updateProfileSettings({
+      preferredDevice: deviceSelect.value,
+      networkProfile: networkSelect.value
+    }).catch(() => {});
     if (savedText) {
       savedText.textContent = "Settings saved.";
     }
   });
 };
 
-const init = () => {
+const init = async () => {
+  await refreshSession();
+  if (appState.user) {
+    await getProfileSettings().catch(() => {});
+  }
   initAuthShell();
   hydrateProfile();
   initSettingsForm();
 
   document.querySelector("[data-profile-signin-btn]")?.addEventListener("click", async () => {
     await signInDemo();
+    await refreshSession();
+    await getProfileSettings().catch(() => {});
     hydrateProfile();
     initAuthShell();
+    initSettingsForm();
   });
 };
 
-init();
+init().catch((error) => {
+  console.error(error);
+});

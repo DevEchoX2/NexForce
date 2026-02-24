@@ -1,4 +1,12 @@
-import { appState, initAuthShell, loadJson, toTitle } from "./app.js";
+import {
+  appState,
+  getPlans,
+  getProfileSettings,
+  initAuthShell,
+  refreshSession,
+  toTitle,
+  updateSelectedPlan
+} from "./app.js";
 
 const renderPlans = (plans, billingCycle) => {
   const container = document.querySelector("[data-plans-grid]");
@@ -8,7 +16,7 @@ const renderPlans = (plans, billingCycle) => {
 
   container.innerHTML = plans
     .map((plan) => {
-      const selected = appState.selectedPlan === plan.id;
+      const selected = appState.settings.selectedPlan === plan.id;
       const cardClass = plan.recommended
         ? "rounded-2xl border border-primary/50 bg-primary/10 p-6 shadow-glow"
         : "plan-card";
@@ -40,8 +48,13 @@ const renderPlans = (plans, billingCycle) => {
     .join("");
 
   container.querySelectorAll("[data-plan-select]").forEach((button) => {
-    button.addEventListener("click", () => {
-      appState.selectedPlan = button.getAttribute("data-plan-select") || "free";
+    button.addEventListener("click", async () => {
+      const selectedPlan = button.getAttribute("data-plan-select") || "free";
+      if (appState.user) {
+        await updateSelectedPlan(selectedPlan).catch(() => {});
+      } else {
+        appState.settings.selectedPlan = selectedPlan;
+      }
       renderPlans(plans, appState.billingCycle);
       hydrateSelectedPlan();
     });
@@ -51,13 +64,17 @@ const renderPlans = (plans, billingCycle) => {
 const hydrateSelectedPlan = () => {
   const selected = document.querySelector("[data-current-plan]");
   if (selected) {
-    selected.textContent = toTitle(appState.selectedPlan);
+    selected.textContent = toTitle(appState.settings.selectedPlan || "free");
   }
 };
 
 const init = async () => {
+  await refreshSession();
+  if (appState.user) {
+    await getProfileSettings().catch(() => {});
+  }
   initAuthShell();
-  const plans = await loadJson("./data/plans.json");
+  const plans = await getPlans();
   const billingToggle = document.querySelector("[data-billing-toggle]");
 
   if (billingToggle) {
