@@ -56,29 +56,29 @@
       </main>
 
       <div data-launch-modal class="fixed inset-0 z-50 hidden bg-black/70 p-4">
-        <div class="mx-auto mt-20 max-w-4xl rounded-2xl border border-white/15 bg-surface p-6 shadow-2xl">
+        <div class="mx-auto mt-16 max-w-3xl rounded-2xl border border-white/15 bg-surface p-4 shadow-2xl">
           <div class="mb-5 flex items-center justify-between">
             <h3 class="text-xl font-bold">Launching <span data-launch-game>Cloud Session</span></h3>
             <button data-close-launch class="rounded-lg border border-white/20 px-3 py-1 text-sm text-soft hover:text-white">Close</button>
           </div>
 
-          <div class="grid gap-4 md:grid-cols-[1fr,1.45fr]">
-            <div>
-              <h4 class="text-4xl font-bold leading-tight text-white">Looking for the Next Available Rig...</h4>
-              <p class="mt-4 text-2xl text-soft">Gamers ahead of you: <span data-queue class="font-semibold text-white">--</span></p>
+          <div class="grid gap-3 md:grid-cols-[1.15fr,1fr]">
+            <div class="space-y-3">
+              <h4 class="text-2xl font-bold leading-snug text-white">Finding your next available rig...</h4>
+              <p class="text-base text-soft">Gamers ahead of you: <span data-queue class="font-semibold text-white">--</span></p>
 
               <div class="mt-3 h-1.5 w-full overflow-hidden rounded bg-white/20">
                 <div data-queue-bar class="h-full rounded bg-primary" style="width: 88%"></div>
               </div>
 
-              <button data-day-pass class="mt-6 inline-flex items-center gap-2 rounded border border-primary/80 bg-primary px-5 py-3 text-sm font-semibold uppercase tracking-wide text-black transition hover:brightness-110">
+              <button data-day-pass class="inline-flex items-center gap-2 rounded border border-primary/80 bg-primary px-4 py-2 text-xs font-semibold uppercase tracking-wide text-black transition hover:brightness-110">
                 <span>↗</span>
                 <span>Get Day Pass ($7)</span>
               </button>
 
               <div class="mt-5 text-soft">
-                <p class="text-sm">Purchase a Day Pass to skip the wait and get:</p>
-                <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+                <p class="text-xs uppercase tracking-wide">Day Pass perks:</p>
+                <ul class="mt-1 list-disc space-y-0.5 pl-5 text-xs">
                   <li>Higher performance gaming rigs</li>
                   <li>Fastest access to servers</li>
                   <li>Longer session lengths</li>
@@ -87,18 +87,18 @@
                 </ul>
               </div>
 
-              <div class="mt-4 grid grid-cols-3 gap-2 text-xs">
+              <div class="grid grid-cols-3 gap-2 text-xs">
                 <div class="rounded-xl border border-white/10 bg-white/5 p-3">
                   <p class="text-soft">ETA</p>
-                  <p data-eta class="mt-1 text-lg font-bold text-white">--</p>
+                  <p data-eta class="mt-1 text-base font-bold text-white">--</p>
                 </div>
                 <div class="rounded-xl border border-white/10 bg-white/5 p-3">
                   <p class="text-soft">Latency</p>
-                  <p data-latency class="mt-1 text-lg font-bold text-white">--</p>
+                  <p data-latency class="mt-1 text-base font-bold text-white">--</p>
                 </div>
                 <div class="rounded-xl border border-white/10 bg-white/5 p-3">
                   <p class="text-soft">FPS</p>
-                  <p data-fps class="mt-1 text-lg font-bold text-white">--</p>
+                  <p data-fps class="mt-1 text-base font-bold text-white">--</p>
                 </div>
               </div>
             </div>
