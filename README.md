@@ -129,6 +129,7 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
 Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (default: 5 minutes).
 Launch-service default rig capacity is configurable with `NEXFORCE_DEFAULT_RIG_CAPACITY` (default: 40 users per rig).
+Launch-service ad policy is configurable with `NEXFORCE_ADS_PER_RIG_SESSION` (default: 15 video ads per rig session).
 
 ### Security + reliability hardening
 
@@ -260,7 +261,7 @@ npm run host:agent
 Step 5 is now implemented in the backend worker pipeline:
 
 - Automatic max-duration enforcement per plan:
-	- `free`: 1 hour
+	- `free`: 30 minutes
 	- `performance`: 6 hours
 	- `ultimate`: 8 hours
 - Timed-out sessions are ended with `endReason: session_timeout`

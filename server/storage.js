@@ -92,7 +92,7 @@ const defaultDb = {
       description: "Queue-based sessions for casual play.",
       monthly: "$0",
       yearly: "$0",
-      features: ["Up to 1-hour sessions", "Standard queue", "1080p up to 60 FPS"],
+      features: ["Up to 30-minute sessions", "Standard queue", "1080p up to 60 FPS"],
       recommended: false
     },
     {

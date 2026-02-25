@@ -33,6 +33,7 @@ const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
 const ORCHESTRATOR_KEY = process.env.NEXFORCE_ORCHESTRATOR_KEY || "nexforce-orchestrator-key";
 const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "true").toLowerCase() !== "false";
 const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
+const ADS_PER_RIG_SESSION = Number(process.env.NEXFORCE_ADS_PER_RIG_SESSION || 15);
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -544,7 +545,7 @@ const planHostRequirements = {
 };
 
 const planSessionDurationMs = {
-  free: 60 * 60 * 1000,
+  free: 30 * 60 * 1000,
   performance: 6 * 60 * 60 * 1000,
   ultimate: 8 * 60 * 60 * 1000
 };
@@ -743,7 +744,11 @@ const assignConnection = (session) => {
   session.connection = {
     mode: "placeholder",
     playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`,
-    rigId: session.hostId || null
+    rigId: session.hostId || null,
+    adPolicy: {
+      adsPlanned: Math.max(0, Math.floor(ADS_PER_RIG_SESSION)),
+      adUnit: "video"
+    }
   };
 };
 
@@ -791,6 +796,10 @@ const getLaunchServiceSnapshot = (db) => {
   return {
     ...totals,
     queueDepth: db.sessionQueue.length,
+    adPolicy: {
+      adsPerSession: Math.max(0, Math.floor(ADS_PER_RIG_SESSION)),
+      adUnit: "video"
+    },
     rigs
   };
 };

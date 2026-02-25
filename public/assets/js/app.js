@@ -417,12 +417,13 @@ export const initLaunchModal = () => {
     } catch (error) {
       const statusCode = Number(error?.status || 0);
       if (statusCode === 401) {
-        if (statusEl) {
-          statusEl.textContent = "Sign in required. Redirecting...";
+        const hasLocalSignIn = Boolean(appState.authUser);
+        if (hasLocalSignIn) {
+          launchLocalRuntime("Session auth expired. Starting local runtime...");
+          return;
         }
-        setTimeout(() => {
-          window.location.href = "./profile.html";
-        }, 700);
+
+        launchLocalRuntime("Sign in required. Starting guest runtime...");
         return;
       }
 
