@@ -9,7 +9,11 @@ const defaultDb = {
       id: "demo-user-001",
       name: "NexForce Player",
       email: "player@nexforce.gg",
-      tier: "performance"
+      tier: "performance",
+      passwordSalt: null,
+      passwordHash: null,
+      createdAt: null,
+      updatedAt: null
     }
   ],
   authSessions: [],
@@ -165,6 +169,23 @@ const normalizeDb = (data) => {
 
   if (!Array.isArray(normalized.users)) {
     normalized.users = defaultDb.users;
+  } else {
+    normalized.users = normalized.users
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry, index) => ({
+        id: typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : `user_${index + 1}`,
+        name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "NexForce User",
+        email: typeof entry.email === "string" && entry.email.trim() ? entry.email.trim().toLowerCase() : `user${index + 1}@nexforce.gg`,
+        tier: typeof entry.tier === "string" && entry.tier.trim() ? entry.tier.trim().toLowerCase() : "free",
+        passwordSalt: typeof entry.passwordSalt === "string" && entry.passwordSalt.trim() ? entry.passwordSalt : null,
+        passwordHash: typeof entry.passwordHash === "string" && entry.passwordHash.trim() ? entry.passwordHash : null,
+        createdAt: typeof entry.createdAt === "string" ? entry.createdAt : null,
+        updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : null
+      }));
+
+    if (normalized.users.length === 0) {
+      normalized.users = defaultDb.users;
+    }
   }
 
   if (!normalized.settingsByUserId || typeof normalized.settingsByUserId !== "object") {
@@ -184,6 +205,15 @@ const normalizeDb = (data) => {
       ? normalized.sessions.filter((entry) => entry && typeof entry.token === "string")
       : [];
     normalized.authSessions = legacyAuthSessions;
+  } else {
+    normalized.authSessions = normalized.authSessions
+      .filter((entry) => entry && typeof entry.token === "string" && typeof entry.userId === "string")
+      .map((entry) => ({
+        token: entry.token,
+        userId: entry.userId,
+        createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
+        expiresAt: typeof entry.expiresAt === "string" ? entry.expiresAt : null
+      }));
   }
 
   if (!normalized.linkedAccountsByUserId || typeof normalized.linkedAccountsByUserId !== "object") {

@@ -1,11 +1,13 @@
 const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
+const { promisify } = require("util");
 const { ensureDb, readDb, writeDb } = require("./storage");
 
 const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
+const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
@@ -94,6 +96,78 @@ const orchestratorHealthState = {
 };
 
 const SCHEDULER_GRACE_MS = Number(process.env.NEXFORCE_SCHEDULER_GRACE_MS || 15000);
+const scryptAsync = promisify(crypto.scrypt);
+
+const allowedUserPlans = new Set(["free", "performance", "ultimate"]);
+
+const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
+
+const sanitizeUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  tier: user.tier,
+  createdAt: user.createdAt || null,
+  updatedAt: user.updatedAt || null
+});
+
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const createPasswordHash = async (password) => {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = await scryptAsync(password, salt, 64);
+  return {
+    passwordSalt: salt,
+    passwordHash: derivedKey.toString("hex")
+  };
+};
+
+const verifyPassword = async (password, user) => {
+  if (!user || !user.passwordSalt || !user.passwordHash) {
+    return false;
+  }
+
+  const derivedKey = await scryptAsync(password, user.passwordSalt, 64);
+  const userHash = Buffer.from(user.passwordHash, "hex");
+
+  if (userHash.length !== derivedKey.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(userHash, derivedKey);
+};
+
+const isSessionExpired = (session) => {
+  const expiresAtMs = session?.expiresAt ? new Date(session.expiresAt).getTime() : Number.NaN;
+  if (Number.isFinite(expiresAtMs)) {
+    return expiresAtMs <= Date.now();
+  }
+
+  const createdAtMs = session?.createdAt ? new Date(session.createdAt).getTime() : Number.NaN;
+  if (Number.isFinite(createdAtMs)) {
+    return createdAtMs + AUTH_SESSION_TTL_MS <= Date.now();
+  }
+
+  return true;
+};
+
+const pruneExpiredAuthSessions = (db) => {
+  const before = db.authSessions.length;
+  db.authSessions = db.authSessions.filter((entry) => !isSessionExpired(entry));
+  return db.authSessions.length !== before;
+};
+
+const issueAuthSession = (db, userId) => {
+  const token = crypto.randomBytes(24).toString("hex");
+  const now = new Date();
+  const createdAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + AUTH_SESSION_TTL_MS).toISOString();
+
+  db.authSessions = db.authSessions.filter((entry) => entry.userId !== userId && !isSessionExpired(entry));
+  db.authSessions.push({ token, userId, createdAt, expiresAt });
+
+  return token;
+};
 
 const asNonNegativeInt = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -260,7 +334,12 @@ const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const db = readDb();
+  const hadExpiredSessions = pruneExpiredAuthSessions(db);
   const session = db.authSessions.find((entry) => entry.token === token);
+
+  if (hadExpiredSessions) {
+    writeDb(db);
+  }
 
   if (!session) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -271,7 +350,7 @@ const authMiddleware = (req, res, next) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  req.auth = { token, user };
+  req.auth = { token, user: sanitizeUser(user) };
   next();
 };
 
@@ -961,6 +1040,88 @@ app.get("/api/control/summary", authMiddleware, requireSchedulerAvailable, (req,
   });
 });
 
+app.post("/api/auth/register", async (req, res) => {
+  const { name, email, password, tier } = req.body || {};
+  const normalizedName = String(name || "").trim();
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedPassword = String(password || "");
+
+  if (!normalizedName || normalizedName.length < 2) {
+    return res.status(400).json({ error: "Name must be at least 2 characters" });
+  }
+
+  if (!isValidEmail(normalizedEmail)) {
+    return res.status(400).json({ error: "A valid email is required" });
+  }
+
+  if (normalizedPassword.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+
+  const db = readDb();
+  const existingUser = db.users.find((entry) => normalizeEmail(entry.email) === normalizedEmail);
+  if (existingUser) {
+    return res.status(409).json({ error: "Email already registered" });
+  }
+
+  try {
+    const credentials = await createPasswordHash(normalizedPassword);
+    const selectedTier = allowedUserPlans.has(String(tier || "").toLowerCase())
+      ? String(tier).toLowerCase()
+      : "free";
+    const timestamp = new Date().toISOString();
+    const user = {
+      id: `user_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+      name: normalizedName,
+      email: normalizedEmail,
+      tier: selectedTier,
+      ...credentials,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    db.users.push(user);
+    db.settingsByUserId[user.id] = {
+      preferredDevice: "PC",
+      networkProfile: "Balanced",
+      selectedPlan: selectedTier
+    };
+
+    const token = issueAuthSession(db, user.id);
+    writeDb(db);
+
+    res.status(201).json({ token, user: sanitizeUser(user) });
+  } catch {
+    res.status(500).json({ error: "Failed to register user" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedPassword = String(password || "");
+
+  if (!isValidEmail(normalizedEmail) || !normalizedPassword) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+
+  const db = readDb();
+  pruneExpiredAuthSessions(db);
+  const user = db.users.find((entry) => normalizeEmail(entry.email) === normalizedEmail);
+
+  const passwordValid = await verifyPassword(normalizedPassword, user);
+  if (!passwordValid) {
+    writeDb(db);
+    return res.status(401).json({ error: "Invalid email or password" });
+  }
+
+  const token = issueAuthSession(db, user.id);
+  user.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  res.json({ token, user: sanitizeUser(user) });
+});
+
 app.post("/api/auth/demo-login", (_req, res) => {
   const db = readDb();
   const user = db.users[0];
@@ -969,12 +1130,10 @@ app.post("/api/auth/demo-login", (_req, res) => {
     return res.status(500).json({ error: "No user configured" });
   }
 
-  const token = crypto.randomBytes(24).toString("hex");
-  db.authSessions = db.authSessions.filter((entry) => entry.userId !== user.id);
-  db.authSessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
+  const token = issueAuthSession(db, user.id);
   writeDb(db);
 
-  res.json({ token, user });
+  res.json({ token, user: sanitizeUser(user) });
 });
 
 app.post("/api/auth/logout", authMiddleware, (req, res) => {

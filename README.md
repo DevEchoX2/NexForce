@@ -96,7 +96,7 @@ This is currently a frontend MVP. Real cloud streaming infrastructure and produc
 
 Step 1 is now available in `server/` as a local/VPS-ready control plane (no Railway required):
 
-- Auth/session token endpoints
+- Account auth (register/login) + session token endpoints
 - Plan checks for game access
 - Session request queue and host allocation
 - Session state endpoints (queued, active, ended)
@@ -104,6 +104,8 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 ### Control-plane endpoints
 
 - `GET /api/health`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
 - `POST /api/auth/demo-login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
@@ -111,6 +113,8 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/sessions/request`
 - `GET /api/sessions/me`
 - `POST /api/sessions/:sessionId/end`
+
+Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
 
 ### Step 2 (prototype host integration) endpoints
 
