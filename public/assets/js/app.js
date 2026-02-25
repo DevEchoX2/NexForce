@@ -233,7 +233,9 @@ export const initLaunchModal = () => {
       if (appState.authToken) {
         return;
       }
-      await signInDemo();
+      const error = new Error("Authentication required");
+      error.status = 401;
+      throw error;
     };
 
     try {
@@ -288,6 +290,16 @@ export const initLaunchModal = () => {
       }
     } catch (error) {
       const statusCode = Number(error?.status || 0);
+      if (statusCode === 401) {
+        if (statusEl) {
+          statusEl.textContent = "Sign in required. Redirecting...";
+        }
+        setTimeout(() => {
+          window.location.href = "./profile.html";
+        }, 700);
+        return;
+      }
+
       if (statusCode === 403) {
         launchLocalRuntime("Provider link required. Starting local runtime...");
         return;
@@ -354,23 +366,6 @@ export const signOut = () => {
   }
   appState.authUser = null;
   appState.authToken = "";
-};
-
-export const signInDemo = async () => {
-  try {
-    const result = await apiRequest("/api/auth/demo-login", {
-      method: "POST",
-      body: {}
-    });
-    appState.authToken = result.token;
-    appState.authUser = result.user;
-    return result.user;
-  } catch {
-    const user = await loadJson("./data/mock-user.json");
-    appState.authToken = "";
-    appState.authUser = user;
-    return user;
-  }
 };
 
 export const signInWithPassword = async ({ email, password }) => {

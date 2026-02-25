@@ -107,7 +107,6 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `GET /api/health`
 - `POST /api/auth/register`
 - `POST /api/auth/login`
-- `POST /api/auth/demo-login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `GET /api/control/summary`

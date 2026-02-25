@@ -8,7 +8,6 @@ const {
   initializePostgres,
   findUserByEmail,
   findUserById,
-  findFirstUser,
   createUser,
   updateUserUpdatedAt,
   pruneExpiredAuthSessions: pruneExpiredAuthSessionsPg,
@@ -1292,37 +1291,6 @@ app.post("/api/auth/login", authRateLimiter, async (req, res) => {
 
   const token = issueAuthSession(db, user.id);
   user.updatedAt = new Date().toISOString();
-  writeDb(db);
-
-  res.json({ token, user: sanitizeUser(user) });
-});
-
-app.post("/api/auth/demo-login", authRateLimiter, async (_req, res) => {
-  if (POSTGRES_ENABLED) {
-    try {
-      await initializePostgres();
-      let user = await findFirstUser();
-      if (!user) {
-        return res.status(500).json({ error: "No user configured" });
-      }
-      const token = crypto.randomBytes(24).toString("hex");
-      const createdAt = new Date().toISOString();
-      const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_MS).toISOString();
-      await createAuthSession({ token, userId: user.id, createdAt, expiresAt });
-      return res.json({ token, user: sanitizeUser(user) });
-    } catch {
-      return res.status(503).json({ error: "Auth backend unavailable" });
-    }
-  }
-
-  const db = readDb();
-  const user = db.users[0];
-
-  if (!user) {
-    return res.status(500).json({ error: "No user configured" });
-  }
-
-  const token = issueAuthSession(db, user.id);
   writeDb(db);
 
   res.json({ token, user: sanitizeUser(user) });

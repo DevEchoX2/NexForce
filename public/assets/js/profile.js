@@ -1,7 +1,6 @@
 import {
   appState,
   initAuthShell,
-  signInDemo,
   signInWithPassword,
   registerAccount,
 } from "./app.js";
@@ -129,13 +128,6 @@ const init = async () => {
   hydrateProfile();
   initSettingsForm();
   initAuthForms();
-
-  document.querySelector("[data-profile-signin-btn]")?.addEventListener("click", async () => {
-    await signInDemo();
-    hydrateProfile();
-    initAuthShell();
-    initSettingsForm();
-  });
 };
 
 init().catch((error) => {
