@@ -136,7 +136,7 @@ const defaultDb = {
       platform: "PC",
       status: "Available",
       minPlan: "performance",
-      image: null,
+      image: "./assets/images/fallguys.jpeg",
       featured: true
     },
     {
@@ -147,7 +147,7 @@ const defaultDb = {
       platform: "PC",
       status: "Available",
       minPlan: "performance",
-      image: null,
+      image: "./assets/images/rocketleague.jpeg",
       featured: true
     }
   ]
