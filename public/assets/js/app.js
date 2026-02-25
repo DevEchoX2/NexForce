@@ -275,6 +275,8 @@ export const initLaunchModal = () => {
   const latencyEl = modal.querySelector("[data-latency]");
   const fpsEl = modal.querySelector("[data-fps]");
   const etaEl = modal.querySelector("[data-eta]");
+  const queueBarEl = modal.querySelector("[data-queue-bar]");
+  const adsCountEl = modal.querySelector("[data-rig-ads-count]");
   const statusEl = modal.querySelector("[data-launch-status]");
 
   let intervalRef;
@@ -292,6 +294,16 @@ export const initLaunchModal = () => {
     trackedSessionId = null;
   };
 
+  const updateQueueProgress = (queueCount) => {
+    if (!queueBarEl) {
+      return;
+    }
+
+    const parsed = Number(queueCount);
+    const pct = Number.isFinite(parsed) ? Math.max(10, Math.min(95, Math.floor(parsed * 2.8))) : 88;
+    queueBarEl.style.width = `${pct}%`;
+  };
+
   const pollUntilActive = async () => {
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -304,6 +316,7 @@ export const initLaunchModal = () => {
 
       if (queueEl && tracked.queuePosition) {
         queueEl.textContent = String(tracked.queuePosition);
+        updateQueueProgress(tracked.queuePosition);
       }
       if (etaEl && tracked.queuePosition) {
         etaEl.textContent = `${Math.max(1, tracked.queuePosition)} min`;
@@ -325,7 +338,11 @@ export const initLaunchModal = () => {
     fpsEl.textContent = selectedPlan === "ultimate" ? "132 FPS" : selectedPlan === "performance" ? "112 FPS" : "88 FPS";
 
     queueEl.textContent = String(queue);
+    updateQueueProgress(queue);
     etaEl.textContent = `${eta} min`;
+    if (adsCountEl) {
+      adsCountEl.textContent = "15";
+    }
     if (statusEl) {
       statusEl.textContent = "Connecting...";
     }
@@ -341,6 +358,7 @@ export const initLaunchModal = () => {
       }
       if (queueEl) {
         queueEl.textContent = "0";
+        updateQueueProgress(0);
       }
       if (etaEl) {
         etaEl.textContent = "Launching...";
@@ -383,6 +401,7 @@ export const initLaunchModal = () => {
         }
         if (queueEl && requestResult.queuePosition) {
           queueEl.textContent = String(requestResult.queuePosition);
+          updateQueueProgress(requestResult.queuePosition);
         }
         if (etaEl && requestResult.queuePosition) {
           etaEl.textContent = `${Math.max(1, requestResult.queuePosition)} min`;

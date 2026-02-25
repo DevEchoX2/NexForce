@@ -358,13 +358,7 @@ const setPanelText = (selector, value) => {
 };
 
 const hydrateRigPanel = async (gameSlug) => {
-  setPanelText("[data-rig-queue-count]", 33);
-  setPanelText("[data-rig-ads-count]", 15);
-
-  const queueBarEl = document.querySelector("[data-rig-queue-bar]");
-  if (queueBarEl) {
-    queueBarEl.style.width = "92%";
-  }
+  setPanelText("[data-rig-max]", 40);
 
   if (!appState.authToken) {
     return;
@@ -375,21 +369,6 @@ const hydrateRigPanel = async (gameSlug) => {
       apiRequest("/api/sessions/me", { auth: true }),
       apiRequest("/api/launch/service/rigs", { auth: true })
     ]);
-
-    const adCount = Number(rigSnapshot?.adPolicy?.adsPerSession);
-    if (Number.isFinite(adCount) && adCount >= 0) {
-      setPanelText("[data-rig-ads-count]", Math.floor(adCount));
-    }
-
-    const queueDepth = Number(rigSnapshot?.queueDepth);
-    if (Number.isFinite(queueDepth) && queueDepth >= 0) {
-      setPanelText("[data-rig-queue-count]", Math.floor(queueDepth));
-
-      const progressPct = Math.max(10, Math.min(95, Math.floor(queueDepth * 2.8)));
-      if (queueBarEl) {
-        queueBarEl.style.width = `${progressPct}%`;
-      }
-    }
 
     const activeSession = (sessions || []).find(
       (entry) => (entry.status === "active" || entry.status === "disconnected") && entry.gameSlug === gameSlug
