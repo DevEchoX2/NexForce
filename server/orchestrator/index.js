@@ -71,6 +71,14 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", startedAt: state.startedAt });
 });
 
+app.get("/", (_req, res) => {
+  res.json({
+    service: "nexforce-orchestrator",
+    status: "ok",
+    endpoints: ["/health", "/state", "/tick"]
+  });
+});
+
 app.get("/state", (_req, res) => {
   res.json(state);
 });
