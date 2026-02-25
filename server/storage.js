@@ -61,6 +61,8 @@ const defaultDb = {
   ],
   authSessions: [],
   linkedAccountsByUserId: {},
+  dayPassByUserId: {},
+  processedStripeEventIds: [],
   launchTickets: [],
   settingsByUserId: {
     "demo-user-001": {
@@ -262,6 +264,18 @@ const normalizeDb = (data) => {
 
   if (!normalized.linkedAccountsByUserId || typeof normalized.linkedAccountsByUserId !== "object") {
     normalized.linkedAccountsByUserId = {};
+  }
+
+  if (!normalized.dayPassByUserId || typeof normalized.dayPassByUserId !== "object") {
+    normalized.dayPassByUserId = {};
+  }
+
+  if (!Array.isArray(normalized.processedStripeEventIds)) {
+    normalized.processedStripeEventIds = [];
+  } else {
+    normalized.processedStripeEventIds = normalized.processedStripeEventIds
+      .filter((entry) => typeof entry === "string" && entry.trim())
+      .slice(-2000);
   }
 
   if (!Array.isArray(normalized.launchTickets)) {

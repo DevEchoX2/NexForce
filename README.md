@@ -140,8 +140,22 @@ Stripe checkout support for day passes is configurable with:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_DAY_PASS_PRICE_ID` (optional; if omitted, server uses dynamic amount pricing)
+- `STRIPE_WEBHOOK_SECRET` (required to verify Stripe webhook signatures)
 - `NEXFORCE_DAY_PASS_PRICE_USD` (default: `7`)
+- `NEXFORCE_DAY_PASS_DURATION_HOURS` (default: `24`)
 - `NEXFORCE_PUBLIC_BASE_URL` (used for Stripe success/cancel redirects)
+
+Stripe webhook endpoint:
+
+- `POST /api/payments/stripe/webhook` (expects raw JSON + Stripe signature header)
+
+Recommended local testing flow:
+
+```bash
+stripe listen --forward-to http://localhost:5500/api/payments/stripe/webhook
+```
+
+Then copy the emitted signing secret into `STRIPE_WEBHOOK_SECRET`.
 
 ### Security + reliability hardening
 

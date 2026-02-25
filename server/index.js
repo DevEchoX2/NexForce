@@ -39,7 +39,9 @@ const REQUIRE_STREAM_HEALTH = (process.env.NEXFORCE_REQUIRE_STREAM_HEALTH || "tr
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
 const STRIPE_DAY_PASS_PRICE_ID = process.env.STRIPE_DAY_PASS_PRICE_ID || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const DAY_PASS_PRICE_USD = Number(process.env.NEXFORCE_DAY_PASS_PRICE_USD || 7);
+const DAY_PASS_DURATION_HOURS = Number(process.env.NEXFORCE_DAY_PASS_DURATION_HOURS || 24);
 const PUBLIC_BASE_URL = process.env.NEXFORCE_PUBLIC_BASE_URL || "http://localhost:5500";
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
@@ -453,6 +455,54 @@ const verifyLaunchTicketSignature = (ticket) => {
   return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 };
 
+app.post("/api/payments/stripe/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: "Stripe webhook is not configured" });
+  }
+
+  const signature = req.headers["stripe-signature"];
+  if (!signature || typeof signature !== "string") {
+    return res.status(400).json({ error: "Missing Stripe signature" });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, signature, STRIPE_WEBHOOK_SECRET);
+  } catch (error) {
+    return res.status(400).json({ error: "Invalid webhook signature", details: error?.message || "signature_verification_failed" });
+  }
+
+  const db = readDb();
+  ensurePaymentState(db);
+  if (db.processedStripeEventIds.includes(event.id)) {
+    return res.json({ received: true, duplicate: true });
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const checkoutSession = event.data?.object || {};
+    const metadata = checkoutSession.metadata || {};
+    const userId = typeof metadata.userId === "string" ? metadata.userId : "";
+    const paymentType = typeof metadata.paymentType === "string" ? metadata.paymentType : "";
+
+    if (userId && paymentType === "day_pass" && checkoutSession.payment_status === "paid") {
+      grantDayPass(db, userId, {
+        source: "stripe_webhook",
+        checkoutSessionId: checkoutSession.id || null,
+        paymentIntentId: checkoutSession.payment_intent || null,
+        customerId: checkoutSession.customer || null
+      });
+    }
+  }
+
+  db.processedStripeEventIds.push(event.id);
+  if (db.processedStripeEventIds.length > 2000) {
+    db.processedStripeEventIds = db.processedStripeEventIds.slice(-2000);
+  }
+  writeDb(db);
+
+  return res.json({ received: true });
+});
+
 app.use(express.json());
 app.use(monitoring.middleware);
 app.use("/api", apiRateLimiter);
@@ -779,13 +829,69 @@ const isHostFresh = (host) => {
 };
 
 const getUserSettings = (db, userId) => {
-  return (
+  const baseSettings =
     db.settingsByUserId[userId] || {
       preferredDevice: "PC",
       networkProfile: "Balanced",
       selectedPlan: "free"
+    };
+
+  const nowMs = Date.now();
+  const dayPass = db.dayPassByUserId?.[userId] || null;
+  const expiresAtMs = dayPass?.expiresAt ? new Date(dayPass.expiresAt).getTime() : Number.NaN;
+  const dayPassActive = Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+
+  if (!dayPassActive) {
+    return baseSettings;
+  }
+
+  const selectedPlan = getPlanRank(baseSettings.selectedPlan) < getPlanRank("performance") ? "performance" : baseSettings.selectedPlan;
+
+  return {
+    ...baseSettings,
+    selectedPlan,
+    dayPass: {
+      active: true,
+      expiresAt: dayPass.expiresAt,
+      remainingSec: Math.floor((expiresAtMs - nowMs) / 1000)
     }
-  );
+  };
+};
+
+const ensurePaymentState = (db) => {
+  if (!db.dayPassByUserId || typeof db.dayPassByUserId !== "object") {
+    db.dayPassByUserId = {};
+  }
+  if (!Array.isArray(db.processedStripeEventIds)) {
+    db.processedStripeEventIds = [];
+  }
+};
+
+const dayPassDurationMs = () => {
+  const hours = Number.isFinite(DAY_PASS_DURATION_HOURS) && DAY_PASS_DURATION_HOURS > 0 ? DAY_PASS_DURATION_HOURS : 24;
+  return Math.floor(hours * 60 * 60 * 1000);
+};
+
+const grantDayPass = (db, userId, metadata = {}) => {
+  ensurePaymentState(db);
+  const nowMs = Date.now();
+  const existing = db.dayPassByUserId[userId] || null;
+  const existingExpiresMs = existing?.expiresAt ? new Date(existing.expiresAt).getTime() : Number.NaN;
+  const startsAtMs = Number.isFinite(existingExpiresMs) && existingExpiresMs > nowMs ? existingExpiresMs : nowMs;
+  const expiresAt = new Date(startsAtMs + dayPassDurationMs()).toISOString();
+
+  db.dayPassByUserId[userId] = {
+    userId,
+    active: true,
+    source: metadata.source || "stripe_webhook",
+    checkoutSessionId: metadata.checkoutSessionId || null,
+    paymentIntentId: metadata.paymentIntentId || null,
+    customerId: metadata.customerId || null,
+    updatedAt: new Date(nowMs).toISOString(),
+    expiresAt
+  };
+
+  return db.dayPassByUserId[userId];
 };
 
 const assignConnection = (session) => {
@@ -1182,7 +1288,32 @@ app.get("/api/payments/config", (_req, res) => {
     stripeEnabled: Boolean(stripe),
     publishableKey: STRIPE_PUBLISHABLE_KEY || null,
     dayPassPriceUsd: Number.isFinite(DAY_PASS_PRICE_USD) && DAY_PASS_PRICE_USD > 0 ? DAY_PASS_PRICE_USD : 7,
+    dayPassDurationHours: Number.isFinite(DAY_PASS_DURATION_HOURS) && DAY_PASS_DURATION_HOURS > 0 ? DAY_PASS_DURATION_HOURS : 24,
     setupUrl: "https://dashboard.stripe.com/register"
+  });
+});
+
+app.get("/api/payments/day-pass/status", authMiddleware, (req, res) => {
+  const db = readDb();
+  ensurePaymentState(db);
+
+  const entry = db.dayPassByUserId[req.auth.user.id] || null;
+  const expiresAtMs = entry?.expiresAt ? new Date(entry.expiresAt).getTime() : Number.NaN;
+  const nowMs = Date.now();
+  const active = Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+
+  if (!active) {
+    return res.json({
+      active: false,
+      expiresAt: entry?.expiresAt || null,
+      remainingSec: 0
+    });
+  }
+
+  return res.json({
+    active: true,
+    expiresAt: entry.expiresAt,
+    remainingSec: Math.floor((expiresAtMs - nowMs) / 1000)
   });
 });
 
@@ -1852,11 +1983,7 @@ app.get("/api/metrics", (_req, res) => {
 
 app.get("/api/profile/settings", authMiddleware, (req, res) => {
   const db = readDb();
-  const settings = db.settingsByUserId[req.auth.user.id] || {
-    preferredDevice: "PC",
-    networkProfile: "Balanced",
-    selectedPlan: "free"
-  };
+  const settings = getUserSettings(db, req.auth.user.id);
 
   res.json(settings);
 });
@@ -1877,7 +2004,7 @@ app.put("/api/profile/settings", authMiddleware, (req, res) => {
   };
 
   writeDb(db);
-  res.json(db.settingsByUserId[req.auth.user.id]);
+  res.json(getUserSettings(db, req.auth.user.id));
 });
 
 app.put("/api/profile/plan", authMiddleware, (req, res) => {
@@ -1901,7 +2028,7 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
   };
   writeDb(db);
 
-  res.json(db.settingsByUserId[req.auth.user.id]);
+  res.json(getUserSettings(db, req.auth.user.id));
 });
 
 app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {
