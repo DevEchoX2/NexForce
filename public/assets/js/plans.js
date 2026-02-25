@@ -6,6 +6,18 @@ import {
   toTitle,
 } from "./app.js";
 
+const isOfflineOrUnavailableError = (error) => {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    status === 0 ||
+    [404, 502, 503, 504].includes(status) ||
+    message.includes("failed to fetch") ||
+    message.includes("service unavailable") ||
+    message.includes("unexpected response format")
+  );
+};
+
 const setPlanStatus = (message, isError = false) => {
   const status = document.querySelector("[data-plan-sub-status]");
   if (!status) {
@@ -34,8 +46,12 @@ const initPlanCheckout = async () => {
         setPlanStatus(`Active plan: ${toTitle(current.planId)} (${toTitle(current.billingCycle || "monthly")}).`);
       }
     }
-  } catch {
-    setPlanStatus("Unable to load subscription status right now.", true);
+  } catch (error) {
+    if (isOfflineOrUnavailableError(error)) {
+      setPlanStatus("Billing backend is offline right now. Plan selection still works locally.");
+    } else {
+      setPlanStatus("Unable to load subscription status right now.", true);
+    }
   }
 
   button.addEventListener("click", async () => {
@@ -74,7 +90,11 @@ const initPlanCheckout = async () => {
 
       setPlanStatus("Checkout URL was not returned.", true);
     } catch (error) {
-      setPlanStatus(error?.message || "Plan checkout failed. Try again.", true);
+      if (isOfflineOrUnavailableError(error)) {
+        setPlanStatus("Billing backend is offline right now. Try checkout again later.");
+      } else {
+        setPlanStatus(error?.message || "Plan checkout failed. Try again.", true);
+      }
     } finally {
       button.disabled = false;
     }
@@ -101,8 +121,12 @@ const initDayPassCheckout = async () => {
     }
 
     setStatus(`Day Pass checkout is ready ($${config.dayPassPriceUsd}).`);
-  } catch {
-    setStatus("Unable to load payment setup right now.", true);
+  } catch (error) {
+    if (isOfflineOrUnavailableError(error)) {
+      setStatus("Billing backend is offline right now. Day Pass checkout is temporarily unavailable.");
+    } else {
+      setStatus("Unable to load payment setup right now.", true);
+    }
   }
 
   button.addEventListener("click", async () => {
@@ -132,8 +156,12 @@ const initDayPassCheckout = async () => {
 
       setStatus("Checkout URL was not returned.", true);
     } catch (error) {
-      const message = error?.message || "Checkout failed. Try again.";
-      setStatus(message, true);
+      if (isOfflineOrUnavailableError(error)) {
+        setStatus("Billing backend is offline right now. Try checkout again later.");
+      } else {
+        const message = error?.message || "Checkout failed. Try again.";
+        setStatus(message, true);
+      }
     } finally {
       button.disabled = false;
     }
@@ -197,6 +225,9 @@ const renderPlans = (plans, billingCycle) => {
           if (error?.payload?.code === "payment_required") {
             appState.selectedPlan = error?.payload?.entitlementPlan || "free";
             setPlanStatus("Payment required for this plan. Use Checkout Selected Plan.", true);
+          } else if (isOfflineOrUnavailableError(error)) {
+            appState.selectedPlan = selectedPlan;
+            setPlanStatus("Saved locally. Backend is offline right now.");
           } else {
             appState.selectedPlan = selectedPlan;
             setPlanStatus(error?.message || "Could not save selected plan to backend.", true);
