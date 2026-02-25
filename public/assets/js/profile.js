@@ -32,20 +32,23 @@ const hydrateProfile = () => {
 const initSettingsForm = () => {
   const deviceSelect = document.querySelector("[data-device]");
   const networkSelect = document.querySelector("[data-network]");
+  const transportSelect = document.querySelector("[data-transport-mode]");
   const form = document.querySelector("[data-settings-form]");
   const savedText = document.querySelector("[data-saved-text]");
 
-  if (!deviceSelect || !networkSelect || !form) {
+  if (!deviceSelect || !networkSelect || !transportSelect || !form) {
     return;
   }
 
   deviceSelect.value = appState.preferredDevice || "PC";
   networkSelect.value = appState.networkProfile || "Balanced";
+  transportSelect.value = appState.transportMode || "auto";
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     appState.preferredDevice = deviceSelect.value;
     appState.networkProfile = networkSelect.value;
+    appState.transportMode = transportSelect.value;
     if (savedText) {
       savedText.textContent = "Settings saved.";
     }

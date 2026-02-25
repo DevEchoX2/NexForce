@@ -1,4 +1,5 @@
 import { appState, initAuthShell, toTitle } from "./app.js";
+import { TRANSPORT_MODES, resolveTransportMode } from "./settings.js";
 
 const getGameFromQuery = () => {
   const params = new URLSearchParams(window.location.search);
@@ -312,7 +313,31 @@ const createRuntime = (profile) => {
   };
 };
 
-const init = () => {
+const getTransportStatusText = ({ mode, reason }) => {
+  if (mode === TRANSPORT_MODES.webrtc) {
+    return "Live Session · WebRTC";
+  }
+
+  if (reason === "forced_compatibility") {
+    return "Live Session · Compatibility";
+  }
+
+  return "Live Session · Compatibility (fallback)";
+};
+
+const getTransportHelpText = ({ mode, reason }) => {
+  if (mode === TRANSPORT_MODES.webrtc) {
+    return null;
+  }
+
+  if (reason === "forced_compatibility") {
+    return "Compatibility mode active (WebRTC disabled in settings).";
+  }
+
+  return "Compatibility mode active (WebRTC unavailable on this network/browser).";
+};
+
+const init = async () => {
   initAuthShell();
 
   const game = getGameFromQuery();
@@ -333,10 +358,24 @@ const init = () => {
 
   const statusEl = document.querySelector("[data-session-status]");
   if (statusEl) {
-    statusEl.textContent = "Live Session";
+    statusEl.textContent = "Connecting...";
+  }
+
+  const transport = await resolveTransportMode();
+
+  if (statusEl) {
+    statusEl.textContent = getTransportStatusText(transport);
   }
 
   createRuntime(profile);
+
+  const helpEl = document.querySelector("[data-runtime-help]");
+  const transportHelp = getTransportHelpText(transport);
+  if (helpEl && transportHelp) {
+    helpEl.textContent = transportHelp;
+  }
 };
 
-init();
+init().catch((error) => {
+  console.error(error);
+});

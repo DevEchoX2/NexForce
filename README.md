@@ -57,6 +57,10 @@ NexForce/
 - Featured games, library filters, and pricing toggle are fully functional.
 - Launch modal queue/latency/FPS simulation runs client-side.
 - When queue reaches launch state, the app transitions to `play.html` as the in-session surface.
+- Profile settings now include a **Streaming Transport** mode:
+	- `Auto` (prefers WebRTC when available)
+	- `Force WebRTC`
+	- `Compatibility` (no WebRTC, for restricted school/work networks)
 
 ## Run locally
 

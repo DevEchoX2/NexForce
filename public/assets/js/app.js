@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
   authToken: "nexforce.authToken",
   preferredDevice: "nexforce.preferredDevice",
   networkProfile: "nexforce.networkProfile",
-  activeGame: "nexforce.activeGame"
+  activeGame: "nexforce.activeGame",
+  transportMode: "nexforce.transportMode"
 };
 
 const getStoredValue = (key, fallbackValue) => {
@@ -82,6 +83,12 @@ export const appState = {
   },
   set activeGame(value) {
     setStoredValue(STORAGE_KEYS.activeGame, value);
+  },
+  get transportMode() {
+    return getStoredValue(STORAGE_KEYS.transportMode, "auto");
+  },
+  set transportMode(value) {
+    setStoredValue(STORAGE_KEYS.transportMode, value || "auto");
   }
 };
 
