@@ -358,8 +358,13 @@ const setPanelText = (selector, value) => {
 };
 
 const hydrateRigPanel = async (gameSlug) => {
-  setPanelText("[data-rig-max]", 40);
-  setPanelText("[data-rig-ads]", 15);
+  setPanelText("[data-rig-queue-count]", 33);
+  setPanelText("[data-rig-ads-count]", 15);
+
+  const queueBarEl = document.querySelector("[data-rig-queue-bar]");
+  if (queueBarEl) {
+    queueBarEl.style.width = "92%";
+  }
 
   if (!appState.authToken) {
     return;
@@ -373,7 +378,17 @@ const hydrateRigPanel = async (gameSlug) => {
 
     const adCount = Number(rigSnapshot?.adPolicy?.adsPerSession);
     if (Number.isFinite(adCount) && adCount >= 0) {
-      setPanelText("[data-rig-ads]", Math.floor(adCount));
+      setPanelText("[data-rig-ads-count]", Math.floor(adCount));
+    }
+
+    const queueDepth = Number(rigSnapshot?.queueDepth);
+    if (Number.isFinite(queueDepth) && queueDepth >= 0) {
+      setPanelText("[data-rig-queue-count]", Math.floor(queueDepth));
+
+      const progressPct = Math.max(10, Math.min(95, Math.floor(queueDepth * 2.8)));
+      if (queueBarEl) {
+        queueBarEl.style.width = `${progressPct}%`;
+      }
     }
 
     const activeSession = (sessions || []).find(
