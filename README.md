@@ -97,6 +97,7 @@ This is currently a frontend MVP. Real cloud streaming infrastructure and produc
 Step 1 is now available in `server/` as a local/VPS-ready control plane (no Railway required):
 
 - Account auth (register/login) + session token endpoints
+- Optional Postgres-backed auth/session/ticket persistence (`DATABASE_URL`)
 - Plan checks for game access
 - Session request queue and host allocation
 - Session state endpoints (queued, active, ended)
@@ -113,8 +114,32 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/sessions/request`
 - `GET /api/sessions/me`
 - `POST /api/sessions/:sessionId/end`
+- `POST /api/launch/ticket/verify`
+- `GET /api/control/monitoring`
+- `GET /api/metrics`
 
 Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
+
+### Security + reliability hardening
+
+- Secure launch tickets are HMAC-signed (`NEXFORCE_TICKET_SIGNING_KEY`) and can be verified via `POST /api/launch/ticket/verify`.
+- API rate limiting is enabled with configurable buckets:
+	- `RATE_LIMIT_API_WINDOW_MS` / `RATE_LIMIT_API_MAX`
+	- `RATE_LIMIT_AUTH_WINDOW_MS` / `RATE_LIMIT_AUTH_MAX`
+	- `RATE_LIMIT_SESSION_WINDOW_MS` / `RATE_LIMIT_SESSION_MAX`
+- Monitoring endpoints:
+	- `GET /api/control/monitoring` (JSON summary)
+	- `GET /api/metrics` (Prometheus-style text)
+
+### Postgres mode (optional)
+
+Set `DATABASE_URL` to enable Postgres-backed persistence for:
+
+- users
+- auth sessions
+- launch tickets
+
+Tables are auto-created on startup by `server/postgres.js`.
 
 ### Step 2 (prototype host integration) endpoints
 

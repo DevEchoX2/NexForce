@@ -3,6 +3,25 @@ const path = require("path");
 const crypto = require("crypto");
 const { promisify } = require("util");
 const { ensureDb, readDb, writeDb } = require("./storage");
+const {
+  POSTGRES_ENABLED,
+  initializePostgres,
+  findUserByEmail,
+  findUserById,
+  findFirstUser,
+  createUser,
+  updateUserUpdatedAt,
+  pruneExpiredAuthSessions: pruneExpiredAuthSessionsPg,
+  createAuthSession,
+  findSessionByToken,
+  revokeSessionByToken,
+  storeLaunchTicket,
+  getLaunchTicketById,
+  consumeLaunchTicket,
+  postgresHealth
+} = require("./postgres");
+const { createRateLimiter } = require("./rate-limit");
+const { createMonitoring } = require("./monitoring");
 
 const app = express();
 const publicDir = path.join(__dirname, "..", "public");
@@ -31,6 +50,7 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
 
 const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
 const INTEGRATION_TICKET_TTL_SEC = Number(process.env.INTEGRATION_TICKET_TTL_SEC || 300);
+const TICKET_SIGNING_KEY = process.env.NEXFORCE_TICKET_SIGNING_KEY || "nexforce-ticket-signing-key";
 const integrationProviders = {
   epic: {
     id: "epic",
@@ -97,6 +117,25 @@ const orchestratorHealthState = {
 
 const SCHEDULER_GRACE_MS = Number(process.env.NEXFORCE_SCHEDULER_GRACE_MS || 15000);
 const scryptAsync = promisify(crypto.scrypt);
+const monitoring = createMonitoring();
+
+const apiRateLimiter = createRateLimiter({
+  label: "api",
+  windowMs: Number(process.env.RATE_LIMIT_API_WINDOW_MS || 60_000),
+  max: Number(process.env.RATE_LIMIT_API_MAX || 240)
+});
+
+const authRateLimiter = createRateLimiter({
+  label: "auth",
+  windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 60_000),
+  max: Number(process.env.RATE_LIMIT_AUTH_MAX || 20)
+});
+
+const sessionRateLimiter = createRateLimiter({
+  label: "session",
+  windowMs: Number(process.env.RATE_LIMIT_SESSION_WINDOW_MS || 60_000),
+  max: Number(process.env.RATE_LIMIT_SESSION_MAX || 40)
+});
 
 const allowedUserPlans = new Set(["free", "performance", "ultimate"]);
 
@@ -303,16 +342,67 @@ const getLinkedAccounts = (db, userId) => {
 };
 
 const buildLaunchTicket = (payload) => {
+  const nonce = crypto.randomBytes(16).toString("hex");
   const expiresAt = new Date(Date.now() + INTEGRATION_TICKET_TTL_SEC * 1000).toISOString();
-  return {
+  const ticket = {
     id: `lt_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
     issuedAt: new Date().toISOString(),
     expiresAt,
+    nonce,
     ...payload
   };
+
+  const signaturePayload = JSON.stringify({
+    id: ticket.id,
+    issuedAt: ticket.issuedAt,
+    expiresAt: ticket.expiresAt,
+    userId: ticket.userId,
+    sessionId: ticket.sessionId,
+    gameSlug: ticket.gameSlug,
+    provider: ticket.provider,
+    providerAccountId: ticket.providerAccountId,
+    launchUrl: ticket.launchUrl,
+    nonce: ticket.nonce
+  });
+
+  ticket.signature = crypto
+    .createHmac("sha256", TICKET_SIGNING_KEY)
+    .update(signaturePayload)
+    .digest("hex");
+
+  return ticket;
+};
+
+const verifyLaunchTicketSignature = (ticket) => {
+  const signaturePayload = JSON.stringify({
+    id: ticket.id,
+    issuedAt: ticket.issuedAt,
+    expiresAt: ticket.expiresAt,
+    userId: ticket.userId,
+    sessionId: ticket.sessionId,
+    gameSlug: ticket.gameSlug,
+    provider: ticket.provider,
+    providerAccountId: ticket.providerAccountId,
+    launchUrl: ticket.launchUrl,
+    nonce: ticket.nonce
+  });
+
+  const expected = crypto
+    .createHmac("sha256", TICKET_SIGNING_KEY)
+    .update(signaturePayload)
+    .digest("hex");
+
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const actualBuffer = Buffer.from(String(ticket.signature || ""), "hex");
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 };
 
 app.use(express.json());
+app.use(monitoring.middleware);
+app.use("/api", apiRateLimiter);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -330,9 +420,34 @@ app.use((req, res, next) => {
   next();
 });
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (POSTGRES_ENABLED) {
+    try {
+      await pruneExpiredAuthSessionsPg();
+      const session = await findSessionByToken(token);
+      if (!session) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const user = await findUserById(session.userId);
+      if (!user) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      req.auth = { token, user: sanitizeUser(user) };
+      return next();
+    } catch {
+      return res.status(503).json({ error: "Auth backend unavailable" });
+    }
+  }
+
   const db = readDb();
   const hadExpiredSessions = pruneExpiredAuthSessions(db);
   const session = db.authSessions.find((entry) => entry.token === token);
@@ -836,8 +951,15 @@ const getWorkerSnapshot = () => ({
   tickIntervalMs: MATCHMAKER_TICK_MS
 });
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+app.get("/api/health", async (_req, res) => {
+  const postgres = await postgresHealth();
+  res.json({
+    status: postgres.status === "error" ? "degraded" : "ok",
+    postgres,
+    monitoring: {
+      uptimeSec: monitoring.snapshot().uptimeSec
+    }
+  });
 });
 
 app.get("/api/games", (_req, res) => {
@@ -1040,7 +1162,7 @@ app.get("/api/control/summary", authMiddleware, requireSchedulerAvailable, (req,
   });
 });
 
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", authRateLimiter, async (req, res) => {
   const { name, email, password, tier } = req.body || {};
   const normalizedName = String(name || "").trim();
   const normalizedEmail = normalizeEmail(email);
@@ -1058,13 +1180,44 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(400).json({ error: "Password must be at least 8 characters" });
   }
 
-  const db = readDb();
-  const existingUser = db.users.find((entry) => normalizeEmail(entry.email) === normalizedEmail);
-  if (existingUser) {
-    return res.status(409).json({ error: "Email already registered" });
-  }
-
   try {
+    if (POSTGRES_ENABLED) {
+      await initializePostgres();
+      const existingUser = await findUserByEmail(normalizedEmail);
+      if (existingUser) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+
+      const credentials = await createPasswordHash(normalizedPassword);
+      const selectedTier = allowedUserPlans.has(String(tier || "").toLowerCase())
+        ? String(tier).toLowerCase()
+        : "free";
+      const timestamp = new Date().toISOString();
+      const user = {
+        id: `user_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+        name: normalizedName,
+        email: normalizedEmail,
+        tier: selectedTier,
+        ...credentials,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+
+      await createUser(user);
+      const token = crypto.randomBytes(24).toString("hex");
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_MS).toISOString();
+      await createAuthSession({ token, userId: user.id, createdAt, expiresAt });
+
+      return res.status(201).json({ token, user: sanitizeUser(user) });
+    }
+
+    const db = readDb();
+    const existingUser = db.users.find((entry) => normalizeEmail(entry.email) === normalizedEmail);
+    if (existingUser) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+
     const credentials = await createPasswordHash(normalizedPassword);
     const selectedTier = allowedUserPlans.has(String(tier || "").toLowerCase())
       ? String(tier).toLowerCase()
@@ -1096,13 +1249,35 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authRateLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   const normalizedEmail = normalizeEmail(email);
   const normalizedPassword = String(password || "");
 
   if (!isValidEmail(normalizedEmail) || !normalizedPassword) {
     return res.status(400).json({ error: "Email and password are required" });
+  }
+
+  if (POSTGRES_ENABLED) {
+    try {
+      await initializePostgres();
+      await pruneExpiredAuthSessionsPg();
+      const user = await findUserByEmail(normalizedEmail);
+      const passwordValid = await verifyPassword(normalizedPassword, user);
+      if (!passwordValid) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      const token = crypto.randomBytes(24).toString("hex");
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_MS).toISOString();
+      await createAuthSession({ token, userId: user.id, createdAt, expiresAt });
+      await updateUserUpdatedAt(user.id, createdAt);
+      const refreshedUser = { ...user, updatedAt: createdAt };
+      return res.json({ token, user: sanitizeUser(refreshedUser) });
+    } catch {
+      return res.status(503).json({ error: "Auth backend unavailable" });
+    }
   }
 
   const db = readDb();
@@ -1122,7 +1297,24 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({ token, user: sanitizeUser(user) });
 });
 
-app.post("/api/auth/demo-login", (_req, res) => {
+app.post("/api/auth/demo-login", authRateLimiter, async (_req, res) => {
+  if (POSTGRES_ENABLED) {
+    try {
+      await initializePostgres();
+      let user = await findFirstUser();
+      if (!user) {
+        return res.status(500).json({ error: "No user configured" });
+      }
+      const token = crypto.randomBytes(24).toString("hex");
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_MS).toISOString();
+      await createAuthSession({ token, userId: user.id, createdAt, expiresAt });
+      return res.json({ token, user: sanitizeUser(user) });
+    } catch {
+      return res.status(503).json({ error: "Auth backend unavailable" });
+    }
+  }
+
   const db = readDb();
   const user = db.users[0];
 
@@ -1136,7 +1328,16 @@ app.post("/api/auth/demo-login", (_req, res) => {
   res.json({ token, user: sanitizeUser(user) });
 });
 
-app.post("/api/auth/logout", authMiddleware, (req, res) => {
+app.post("/api/auth/logout", authMiddleware, async (req, res) => {
+  if (POSTGRES_ENABLED) {
+    try {
+      await revokeSessionByToken(req.auth.token);
+      return res.json({ success: true });
+    } catch {
+      return res.status(503).json({ error: "Auth backend unavailable" });
+    }
+  }
+
   const db = readDb();
   db.authSessions = db.authSessions.filter((entry) => entry.token !== req.auth.token);
   writeDb(db);
@@ -1203,7 +1404,7 @@ app.delete("/api/integrations/:provider/unlink", authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-app.post("/api/launch/ticket", authMiddleware, (req, res) => {
+app.post("/api/launch/ticket", authMiddleware, sessionRateLimiter, async (req, res) => {
   const { gameSlug, sessionId = null } = req.body || {};
   if (!gameSlug) {
     return res.status(400).json({ error: "gameSlug is required" });
@@ -1258,11 +1459,20 @@ app.post("/api/launch/ticket", authMiddleware, (req, res) => {
     launchUrl: externalLaunchUrl
   });
 
-  if (!Array.isArray(db.launchTickets)) {
-    db.launchTickets = [];
+  if (POSTGRES_ENABLED) {
+    try {
+      await initializePostgres();
+      await storeLaunchTicket(ticket);
+    } catch {
+      return res.status(503).json({ error: "Ticket backend unavailable" });
+    }
+  } else {
+    if (!Array.isArray(db.launchTickets)) {
+      db.launchTickets = [];
+    }
+    db.launchTickets.push(ticket);
+    db.launchTickets = db.launchTickets.slice(-500);
   }
-  db.launchTickets.push(ticket);
-  db.launchTickets = db.launchTickets.slice(-500);
 
   appendSchedulerEvent(db, "launch_ticket_issued", {
     userId: req.auth.user.id,
@@ -1273,6 +1483,60 @@ app.post("/api/launch/ticket", authMiddleware, (req, res) => {
   writeDb(db);
 
   res.json(ticket);
+});
+
+app.post("/api/launch/ticket/verify", authMiddleware, sessionRateLimiter, async (req, res) => {
+  const { ticketId, signature, consume = false } = req.body || {};
+  if (!ticketId || !signature) {
+    return res.status(400).json({ error: "ticketId and signature are required" });
+  }
+
+  let ticket;
+  if (POSTGRES_ENABLED) {
+    try {
+      ticket = await getLaunchTicketById(ticketId);
+    } catch {
+      return res.status(503).json({ error: "Ticket backend unavailable" });
+    }
+  } else {
+    const db = readDb();
+    ticket = Array.isArray(db.launchTickets) ? db.launchTickets.find((entry) => entry.id === ticketId) : null;
+  }
+
+  if (!ticket) {
+    return res.status(404).json({ error: "Ticket not found" });
+  }
+
+  if (ticket.userId !== req.auth.user.id) {
+    return res.status(403).json({ error: "Ticket does not belong to user" });
+  }
+
+  if (ticket.signature !== signature || !verifyLaunchTicketSignature(ticket)) {
+    return res.status(400).json({ error: "Invalid ticket signature" });
+  }
+
+  const expiresAtMs = new Date(ticket.expiresAt).getTime();
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return res.status(410).json({ error: "Ticket expired" });
+  }
+
+  if (consume && POSTGRES_ENABLED) {
+    try {
+      await consumeLaunchTicket(ticket.id);
+    } catch {
+      return res.status(503).json({ error: "Ticket backend unavailable" });
+    }
+  }
+
+  res.json({ valid: true, ticketId: ticket.id, expiresAt: ticket.expiresAt, launchUrl: ticket.launchUrl });
+});
+
+app.get("/api/control/monitoring", authMiddleware, (_req, res) => {
+  res.json(monitoring.snapshot());
+});
+
+app.get("/api/metrics", (_req, res) => {
+  res.type("text/plain").send(monitoring.prometheus());
 });
 
 app.get("/api/profile/settings", authMiddleware, (req, res) => {
@@ -1329,7 +1593,7 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
   res.json(db.settingsByUserId[req.auth.user.id]);
 });
 
-app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, (req, res) => {
+app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {
   const { gameSlug, preferredRegion = null } = req.body || {};
   if (!gameSlug) {
     return res.status(400).json({ error: "gameSlug is required" });
@@ -1606,6 +1870,16 @@ app.get("*", (_req, res) => {
 });
 
 ensureDb();
+
+if (POSTGRES_ENABLED) {
+  initializePostgres()
+    .then(() => {
+      console.log("Postgres initialized");
+    })
+    .catch((error) => {
+      console.error("Postgres initialization failed", error);
+    });
+}
 
 if (ORCHESTRATOR_EMBEDDED) {
   const matchmakerTimer = setInterval(() => {

@@ -373,6 +373,26 @@ export const signInDemo = async () => {
   }
 };
 
+export const signInWithPassword = async ({ email, password }) => {
+  const result = await apiRequest("/api/auth/login", {
+    method: "POST",
+    body: { email, password }
+  });
+  appState.authToken = result.token;
+  appState.authUser = result.user;
+  return result.user;
+};
+
+export const registerAccount = async ({ name, email, password, tier = "free" }) => {
+  const result = await apiRequest("/api/auth/register", {
+    method: "POST",
+    body: { name, email, password, tier }
+  });
+  appState.authToken = result.token;
+  appState.authUser = result.user;
+  return result.user;
+};
+
 export const initAuthShell = () => {
   const shell = document.querySelector("[data-auth-shell]");
   if (!shell) {
@@ -399,8 +419,7 @@ export const initAuthShell = () => {
     `;
 
     shell.querySelector("[data-sign-in]")?.addEventListener("click", async () => {
-      await signInDemo();
-      render();
+      window.location.href = "./profile.html";
     });
   };
 

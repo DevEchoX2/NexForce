@@ -2,6 +2,8 @@ import {
   appState,
   initAuthShell,
   signInDemo,
+  signInWithPassword,
+  registerAccount,
 } from "./app.js";
 
 const hydrateProfile = () => {
@@ -51,10 +53,82 @@ const initSettingsForm = () => {
   });
 };
 
+const initAuthForms = () => {
+  const loginTabBtn = document.querySelector("[data-auth-tab-login]");
+  const registerTabBtn = document.querySelector("[data-auth-tab-register]");
+  const loginForm = document.querySelector("[data-login-form]");
+  const registerForm = document.querySelector("[data-register-form]");
+  const messageEl = document.querySelector("[data-auth-message]");
+
+  if (!loginForm || !registerForm || !loginTabBtn || !registerTabBtn) {
+    return;
+  }
+
+  const setAuthMessage = (text, isError = false) => {
+    if (!messageEl) {
+      return;
+    }
+    messageEl.textContent = text;
+    messageEl.classList.toggle("text-red-300", isError);
+    messageEl.classList.toggle("text-soft", !isError);
+  };
+
+  const showLogin = () => {
+    loginForm.classList.remove("hidden");
+    registerForm.classList.add("hidden");
+    loginTabBtn.className = "rounded-lg border border-primary/70 bg-primary px-3 py-1 text-xs font-semibold text-black";
+    registerTabBtn.className = "rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-white";
+  };
+
+  const showRegister = () => {
+    registerForm.classList.remove("hidden");
+    loginForm.classList.add("hidden");
+    registerTabBtn.className = "rounded-lg border border-primary/70 bg-primary px-3 py-1 text-xs font-semibold text-black";
+    loginTabBtn.className = "rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs font-semibold text-white";
+  };
+
+  loginTabBtn.addEventListener("click", showLogin);
+  registerTabBtn.addEventListener("click", showRegister);
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = loginForm.querySelector("[data-login-email]")?.value?.trim();
+    const password = loginForm.querySelector("[data-login-password]")?.value || "";
+
+    try {
+      await signInWithPassword({ email, password });
+      setAuthMessage("Logged in successfully.");
+      hydrateProfile();
+      initAuthShell();
+      initSettingsForm();
+    } catch (error) {
+      setAuthMessage(error?.payload?.error || "Login failed.", true);
+    }
+  });
+
+  registerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = registerForm.querySelector("[data-register-name]")?.value?.trim();
+    const email = registerForm.querySelector("[data-register-email]")?.value?.trim();
+    const password = registerForm.querySelector("[data-register-password]")?.value || "";
+
+    try {
+      await registerAccount({ name, email, password, tier: "free" });
+      setAuthMessage("Account created and signed in.");
+      hydrateProfile();
+      initAuthShell();
+      initSettingsForm();
+    } catch (error) {
+      setAuthMessage(error?.payload?.error || "Registration failed.", true);
+    }
+  });
+};
+
 const init = async () => {
   initAuthShell();
   hydrateProfile();
   initSettingsForm();
+  initAuthForms();
 
   document.querySelector("[data-profile-signin-btn]")?.addEventListener("click", async () => {
     await signInDemo();
