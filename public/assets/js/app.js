@@ -19,6 +19,118 @@ const setStoredValue = (key, value) => {
   localStorage.setItem(key, value);
 };
 
+const DEMO_USERS_KEY = "nexforce.demoUsers";
+
+const readDemoUsers = () => {
+  try {
+    const raw = localStorage.getItem(DEMO_USERS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeDemoUsers = (users) => {
+  localStorage.setItem(DEMO_USERS_KEY, JSON.stringify(users));
+};
+
+const createDemoToken = () => {
+  return `demo_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+};
+
+const findDemoUserByEmail = (email) => {
+  const normalized = String(email || "").trim().toLowerCase();
+  return readDemoUsers().find((entry) => String(entry.email || "").toLowerCase() === normalized) || null;
+};
+
+const registerDemoUser = ({ name, email, password, tier = "free" }) => {
+  const normalizedName = String(name || "").trim();
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedPassword = String(password || "");
+
+  if (normalizedName.length < 2) {
+    const error = new Error("Name must be at least 2 characters");
+    error.payload = { error: "Name must be at least 2 characters" };
+    throw error;
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    const error = new Error("A valid email is required");
+    error.payload = { error: "A valid email is required" };
+    throw error;
+  }
+
+  if (normalizedPassword.length < 8) {
+    const error = new Error("Password must be at least 8 characters");
+    error.payload = { error: "Password must be at least 8 characters" };
+    throw error;
+  }
+
+  const users = readDemoUsers();
+  if (users.some((entry) => String(entry.email || "").toLowerCase() === normalizedEmail)) {
+    const error = new Error("Email already registered");
+    error.payload = { error: "Email already registered" };
+    throw error;
+  }
+
+  const selectedTier = ["free", "performance", "ultimate"].includes(String(tier || "").toLowerCase())
+    ? String(tier).toLowerCase()
+    : "free";
+
+  const user = {
+    id: `demo_user_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+    name: normalizedName,
+    email: normalizedEmail,
+    tier: selectedTier,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    password: normalizedPassword
+  };
+
+  users.push(user);
+  writeDemoUsers(users);
+
+  return {
+    token: createDemoToken(),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      tier: user.tier,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    }
+  };
+};
+
+const loginDemoUser = ({ email, password }) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedPassword = String(password || "");
+  const user = findDemoUserByEmail(normalizedEmail);
+
+  if (!user || user.password !== normalizedPassword) {
+    const error = new Error("Invalid email or password");
+    error.payload = { error: "Invalid email or password" };
+    throw error;
+  }
+
+  return {
+    token: createDemoToken(),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      tier: user.tier,
+      createdAt: user.createdAt || null,
+      updatedAt: new Date().toISOString()
+    }
+  };
+};
+
 export const appState = {
   get billingCycle() {
     return getStoredValue(STORAGE_KEYS.billingCycle, "monthly");
@@ -121,7 +233,14 @@ export const apiRequest = async (path, { method = "GET", body, auth = false } = 
   });
 
   const text = await response.text();
-  const parsed = text ? JSON.parse(text) : {};
+  let parsed = {};
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { error: response.ok ? "Unexpected response format" : "Service unavailable" };
+    }
+  }
 
   if (!response.ok) {
     const error = new Error(parsed.error || `Request failed: ${response.status}`);
@@ -376,20 +495,38 @@ export const signOut = () => {
 };
 
 export const signInWithPassword = async ({ email, password }) => {
-  const result = await apiRequest("/api/auth/login", {
-    method: "POST",
-    body: { email, password }
-  });
+  let result;
+  try {
+    result = await apiRequest("/api/auth/login", {
+      method: "POST",
+      body: { email, password }
+    });
+  } catch (error) {
+    if (Number(error?.status || 0) === 0 || error?.message === "Failed to fetch") {
+      result = loginDemoUser({ email, password });
+    } else {
+      throw error;
+    }
+  }
   appState.authToken = result.token;
   appState.authUser = result.user;
   return result.user;
 };
 
 export const registerAccount = async ({ name, email, password, tier = "free" }) => {
-  const result = await apiRequest("/api/auth/register", {
-    method: "POST",
-    body: { name, email, password, tier }
-  });
+  let result;
+  try {
+    result = await apiRequest("/api/auth/register", {
+      method: "POST",
+      body: { name, email, password, tier }
+    });
+  } catch (error) {
+    if (Number(error?.status || 0) === 0 || error?.message === "Failed to fetch") {
+      result = registerDemoUser({ name, email, password, tier });
+    } else {
+      throw error;
+    }
+  }
   appState.authToken = result.token;
   appState.authUser = result.user;
   return result.user;

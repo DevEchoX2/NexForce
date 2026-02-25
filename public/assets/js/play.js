@@ -325,6 +325,18 @@ const getTransportStatusText = ({ mode, reason }) => {
   return "Live Session · Compatibility (fallback)";
 };
 
+const getTransportBadgeText = ({ mode, reason }) => {
+  if (mode === TRANSPORT_MODES.webrtc) {
+    return "WebRTC";
+  }
+
+  if (reason === "forced_compatibility") {
+    return "Compatibility";
+  }
+
+  return "Compatibility (Fallback)";
+};
+
 const getTransportHelpText = ({ mode, reason }) => {
   if (mode === TRANSPORT_MODES.webrtc) {
     return null;
@@ -365,6 +377,11 @@ const init = async () => {
 
   if (statusEl) {
     statusEl.textContent = getTransportStatusText(transport);
+  }
+
+  const transportBadgeEl = document.querySelector("[data-transport-badge]");
+  if (transportBadgeEl) {
+    transportBadgeEl.textContent = getTransportBadgeText(transport);
   }
 
   createRuntime(profile);
