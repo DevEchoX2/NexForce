@@ -32,6 +32,7 @@ const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
 const ORCHESTRATOR_KEY = process.env.NEXFORCE_ORCHESTRATOR_KEY || "nexforce-orchestrator-key";
 const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "true").toLowerCase() !== "false";
+const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -212,6 +213,14 @@ const asNonNegativeInt = (value, fallback = 0) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const normalizeHostCapacity = (value, fallback = DEFAULT_RIG_CAPACITY) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return Math.max(1, Math.floor(fallback || DEFAULT_RIG_CAPACITY || 10));
   }
   return Math.floor(parsed);
 };
@@ -580,7 +589,9 @@ const isHostCompatible = (host, session) => {
     return false;
   }
 
-  if (host.activeSessions >= host.capacity) {
+  const normalizedCapacity = normalizeHostCapacity(host.capacity);
+
+  if (host.activeSessions >= normalizedCapacity) {
     return false;
   }
 
@@ -621,7 +632,8 @@ const getHostPlanActiveCounts = (db, hostId) => {
 const canHostAcceptPlan = (db, host, plan) => {
   const policy = normalizeHostSlotPolicy(host.slotPolicy);
   const activeCounts = getHostPlanActiveCounts(db, host.id);
-  const availableSlots = Math.max(0, host.capacity - host.activeSessions);
+  const capacity = normalizeHostCapacity(host.capacity);
+  const availableSlots = Math.max(0, capacity - host.activeSessions);
 
   let reservedForHigherTiers = 0;
   let activeHigherTiers = 0;
@@ -647,7 +659,8 @@ const isHostCompatibleForSession = (db, host, session) => {
 };
 
 const getAssignmentReason = (host, session) => {
-  const loadRatio = host.capacity > 0 ? (host.activeSessions / host.capacity).toFixed(2) : "1.00";
+  const capacity = normalizeHostCapacity(host.capacity);
+  const loadRatio = capacity > 0 ? (host.activeSessions / capacity).toFixed(2) : "1.00";
   const regionLabel = session.preferredRegion ? `${host.region === session.preferredRegion ? "region_match" : "region_fallback"}` : "no_region_pref";
   return `${regionLabel}+load_${loadRatio}+capability`;
 };
@@ -729,7 +742,56 @@ const getUserSettings = (db, userId) => {
 const assignConnection = (session) => {
   session.connection = {
     mode: "placeholder",
-    playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`
+    playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`,
+    rigId: session.hostId || null
+  };
+};
+
+const buildRigSummary = (host) => {
+  const maxUsers = normalizeHostCapacity(host.capacity);
+  const activeUsers = asNonNegativeInt(host.activeSessions, 0);
+  const availableUsers = Math.max(0, maxUsers - activeUsers);
+  const saturationPct = maxUsers > 0 ? Math.round((activeUsers / maxUsers) * 100) : 100;
+
+  return {
+    rigId: host.id,
+    name: host.name,
+    region: host.region,
+    status: host.status,
+    mode: normalizeHostMode(host.mode),
+    activeUsers,
+    maxUsers,
+    availableUsers,
+    saturationPct,
+    acceptingUsers: host.status === "online" && normalizeHostMode(host.mode) === hostMode.active && availableUsers > 0
+  };
+};
+
+const getLaunchServiceSnapshot = (db) => {
+  const rigs = db.gameHosts.map(buildRigSummary);
+  const totals = rigs.reduce(
+    (accumulator, rig) => {
+      accumulator.activeUsers += rig.activeUsers;
+      accumulator.maxUsers += rig.maxUsers;
+      accumulator.availableUsers += rig.availableUsers;
+      if (rig.availableUsers === 0) {
+        accumulator.saturatedRigs += 1;
+      }
+      return accumulator;
+    },
+    {
+      rigsTotal: rigs.length,
+      activeUsers: 0,
+      maxUsers: 0,
+      availableUsers: 0,
+      saturatedRigs: 0
+    }
+  );
+
+  return {
+    ...totals,
+    queueDepth: db.sessionQueue.length,
+    rigs
   };
 };
 
@@ -739,6 +801,12 @@ const reconcileHostsAndSessions = (db) => {
   let changed = false;
 
   db.gameHosts.forEach((host) => {
+    const normalizedCapacity = normalizeHostCapacity(host.capacity);
+    if (host.capacity !== normalizedCapacity) {
+      host.capacity = normalizedCapacity;
+      changed = true;
+    }
+
     const normalizedMode = normalizeHostMode(host.mode);
     if (host.mode !== normalizedMode) {
       host.mode = normalizedMode;
@@ -876,8 +944,8 @@ const getAvailableHostForSession = (db, session) => {
         return leftRegionScore - rightRegionScore;
       }
 
-      const leftLoad = left.activeSessions / left.capacity;
-      const rightLoad = right.activeSessions / right.capacity;
+      const leftLoad = left.activeSessions / normalizeHostCapacity(left.capacity);
+      const rightLoad = right.activeSessions / normalizeHostCapacity(right.capacity);
       if (leftLoad !== rightLoad) {
         return leftLoad - rightLoad;
       }
@@ -1040,8 +1108,36 @@ app.get("/api/hosts", authMiddleware, requireSchedulerAvailable, (_req, res) => 
   res.json(db.gameHosts);
 });
 
+app.get("/api/launch/service/rigs", authMiddleware, requireSchedulerAvailable, (_req, res) => {
+  const db = readDb();
+  promoteQueue(db);
+  writeDb(db);
+  res.json(getLaunchServiceSnapshot(db));
+});
+
+app.put("/api/launch/service/rigs/:rigId/capacity", hostAuthMiddleware, (req, res) => {
+  const { rigId } = req.params;
+  const { maxUsers } = req.body || {};
+
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === rigId);
+  if (!host) {
+    return res.status(404).json({ error: "Rig not found" });
+  }
+
+  host.capacity = normalizeHostCapacity(maxUsers, host.capacity || DEFAULT_RIG_CAPACITY);
+  appendSchedulerEvent(db, "rig_capacity_updated", {
+    rigId: host.id,
+    maxUsers: host.capacity
+  });
+
+  promoteQueue(db);
+  writeDb(db);
+  res.json(buildRigSummary(host));
+});
+
 app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
-  const { hostId, name, region = "local", capacity = 1, capabilities, mode, slotPolicy } = req.body || {};
+  const { hostId, name, region = "local", capacity = DEFAULT_RIG_CAPACITY, capabilities, mode, slotPolicy } = req.body || {};
   if (!hostId || !name) {
     return res.status(400).json({ error: "hostId and name are required" });
   }
@@ -1052,7 +1148,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
   if (existing) {
     existing.name = name;
     existing.region = region;
-    existing.capacity = Number(capacity) > 0 ? Number(capacity) : 1;
+    existing.capacity = normalizeHostCapacity(capacity, existing.capacity || DEFAULT_RIG_CAPACITY);
     existing.capabilities = normalizeHostCapabilities(capabilities || existing.capabilities);
     existing.mode = normalizeHostMode(mode || existing.mode);
     existing.slotPolicy = normalizeHostSlotPolicy(slotPolicy || existing.slotPolicy);
@@ -1075,7 +1171,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     id: hostId,
     name,
     region,
-    capacity: Number(capacity) > 0 ? Number(capacity) : 1,
+    capacity: normalizeHostCapacity(capacity, DEFAULT_RIG_CAPACITY),
     activeSessions: 0,
     status: "online",
     mode: normalizeHostMode(mode),

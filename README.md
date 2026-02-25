@@ -120,12 +120,15 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/sessions/:sessionId/reconnect`
 - `POST /api/sessions/:sessionId/end`
 - `POST /api/launch/ticket/verify`
+- `GET /api/launch/service/rigs`
+- `PUT /api/launch/service/rigs/:rigId/capacity` (host key required)
 - `GET /api/control/monitoring`
 - `GET /api/metrics`
 - `GET /api/control/autoscale`
 
 Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
 Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (default: 5 minutes).
+Launch-service default rig capacity is configurable with `NEXFORCE_DEFAULT_RIG_CAPACITY` (default: 40 users per rig).
 
 ### Security + reliability hardening
 

@@ -2,6 +2,15 @@ const fs = require("fs");
 const path = require("path");
 
 const dbPath = path.join(__dirname, "data", "db.json");
+const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
+
+const normalizeHostCapacity = (value, fallback = DEFAULT_RIG_CAPACITY) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return Math.max(1, Math.floor(fallback || DEFAULT_RIG_CAPACITY || 10));
+  }
+  return Math.floor(parsed);
+};
 
 const defaultDb = {
   users: [
@@ -31,7 +40,7 @@ const defaultDb = {
       id: "host-1",
       name: "NexForce Host 1",
       region: "local",
-      capacity: 1,
+      capacity: DEFAULT_RIG_CAPACITY,
       activeSessions: 0,
       status: "online",
       mode: "active",
@@ -264,6 +273,7 @@ const normalizeDb = (data) => {
   } else {
     normalized.gameHosts = normalized.gameHosts.map((entry) => ({
       ...entry,
+      capacity: normalizeHostCapacity(entry.capacity),
       mode: entry.mode || "active",
       slotPolicy: {
         freeReservedMin: Number.isFinite(Number(entry.slotPolicy?.freeReservedMin)) ? Math.max(0, Math.floor(Number(entry.slotPolicy.freeReservedMin))) : 0,
