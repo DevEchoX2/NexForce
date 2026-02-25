@@ -150,6 +150,35 @@ Step 3 is now implemented with a continuous background worker:
 - `PUT /api/control/scheduler/policy` (user auth required)
 - `POST /api/control/scheduler/metrics/reset` (user auth required)
 
+### Step 3 split mode (separate orchestrator service)
+
+You can run scheduler/placement as a separate backend process:
+
+- Control API (without embedded scheduler):
+
+```bash
+npm run serve:control
+```
+
+- Orchestrator service:
+
+```bash
+npm run serve:orchestrator
+```
+
+Internal orchestrator endpoints on control API:
+
+- `GET /internal/orchestrator/health` (`x-orchestrator-key` required)
+- `POST /internal/orchestrator/tick` (`x-orchestrator-key` required)
+
+Related env vars:
+
+- `NEXFORCE_ORCHESTRATOR_EMBEDDED` (default: `true`)
+- `NEXFORCE_ORCHESTRATOR_KEY` (default: `nexforce-orchestrator-key`)
+- `CONTROL_API_URL` for orchestrator (default: `http://localhost:5500`)
+- `ORCHESTRATOR_PORT` (default: `5600`)
+- `ORCHESTRATOR_TICK_MS` (default: `5000`)
+
 ## Step 4 (host agent daemon)
 
 Step 4 adds a runnable host daemon at `server/host-agent.js`:

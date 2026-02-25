@@ -7,6 +7,8 @@
     "watch:css": "tailwindcss -i ./src/tailwind.css -o ./public/assets/css/main.css --watch",
     "start": "node ./server/index.js",
     "serve": "node ./server/index.js",
+    "serve:control": "NEXFORCE_ORCHESTRATOR_EMBEDDED=false node ./server/index.js",
+    "serve:orchestrator": "node ./server/orchestrator/index.js",
     "host:agent": "node ./server/host-agent.js",
     "serve:static": "cd public && python3 -m http.server 5500"
   },

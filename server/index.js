@@ -9,6 +9,8 @@ const PORT = process.env.PORT || 5500;
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
+const ORCHESTRATOR_KEY = process.env.NEXFORCE_ORCHESTRATOR_KEY || "nexforce-orchestrator-key";
+const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "true").toLowerCase() !== "false";
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -270,6 +272,14 @@ const hostAuthMiddleware = (req, res, next) => {
   const key = req.headers["x-host-key"];
   if (!key || key !== HOST_KEY) {
     return res.status(401).json({ error: "Invalid host key" });
+  }
+  next();
+};
+
+const orchestratorAuthMiddleware = (req, res, next) => {
+  const key = req.headers["x-orchestrator-key"];
+  if (!key || key !== ORCHESTRATOR_KEY) {
+    return res.status(401).json({ error: "Invalid orchestrator key" });
   }
   next();
 };
@@ -1327,6 +1337,16 @@ app.post("/api/control/worker/tick", authMiddleware, (_req, res) => {
   res.json({ worker: getWorkerSnapshot(), result });
 });
 
+app.get("/internal/orchestrator/health", orchestratorAuthMiddleware, (_req, res) => {
+  res.json({ status: "ok", embedded: ORCHESTRATOR_EMBEDDED });
+});
+
+app.post("/internal/orchestrator/tick", orchestratorAuthMiddleware, (req, res) => {
+  const forceWrite = Boolean(req.body?.forceWrite);
+  const result = runMatchmakerTick({ forceWrite });
+  res.json({ worker: getWorkerSnapshot(), result });
+});
+
 app.get("/api/control/scheduler", authMiddleware, (_req, res) => {
   const db = readDb();
   const policy = getSchedulerPolicy(db);
@@ -1386,16 +1406,18 @@ app.get("*", (_req, res) => {
 
 ensureDb();
 
-const matchmakerTimer = setInterval(() => {
-  try {
-    runMatchmakerTick();
-  } catch (error) {
-    console.error("Matchmaker tick failed", error);
-  }
-}, MATCHMAKER_TICK_MS);
+if (ORCHESTRATOR_EMBEDDED) {
+  const matchmakerTimer = setInterval(() => {
+    try {
+      runMatchmakerTick();
+    } catch (error) {
+      console.error("Matchmaker tick failed", error);
+    }
+  }, MATCHMAKER_TICK_MS);
 
-if (typeof matchmakerTimer.unref === "function") {
-  matchmakerTimer.unref();
+  if (typeof matchmakerTimer.unref === "function") {
+    matchmakerTimer.unref();
+  }
 }
 
 app.listen(PORT, () => {
