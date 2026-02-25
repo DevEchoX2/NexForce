@@ -357,6 +357,56 @@ const setPanelText = (selector, value) => {
   element.textContent = String(value);
 };
 
+let rigTimeUnlocked = false;
+let remainingSessionSeconds = null;
+
+const formatRemainingTime = (seconds) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
+
+const updateRigTimeDisplay = () => {
+  const valueEl = document.querySelector("[data-rig-time-left]");
+  const noteEl = document.querySelector("[data-rig-time-note]");
+  if (!valueEl || !noteEl) {
+    return;
+  }
+
+  if (!rigTimeUnlocked) {
+    valueEl.textContent = "Locked";
+    noteEl.textContent = "Press 🙏 on the left to reveal hours/minutes.";
+    return;
+  }
+
+  if (Number.isFinite(remainingSessionSeconds)) {
+    valueEl.textContent = formatRemainingTime(remainingSessionSeconds);
+    noteEl.textContent = "Remaining in your current cloud session.";
+    return;
+  }
+
+  valueEl.textContent = "No active timer";
+  noteEl.textContent = "Start a session to see hours/minutes left.";
+};
+
+const initRigTimeUnlock = () => {
+  const unlockButton = document.querySelector("[data-rig-unlock]");
+  if (!unlockButton) {
+    return;
+  }
+
+  unlockButton.addEventListener("click", () => {
+    rigTimeUnlocked = true;
+    updateRigTimeDisplay();
+  });
+
+  updateRigTimeDisplay();
+};
+
 const hydrateRigPanel = async (gameSlug) => {
   setPanelText("[data-rig-max]", 40);
 
@@ -373,6 +423,13 @@ const hydrateRigPanel = async (gameSlug) => {
     const activeSession = (sessions || []).find(
       (entry) => (entry.status === "active" || entry.status === "disconnected") && entry.gameSlug === gameSlug
     );
+
+    if (activeSession && Number.isFinite(Number(activeSession.remainingSec))) {
+      remainingSessionSeconds = Number(activeSession.remainingSec);
+    } else {
+      remainingSessionSeconds = null;
+    }
+    updateRigTimeDisplay();
 
     let rig = null;
     if (activeSession?.hostId) {
@@ -400,6 +457,13 @@ const hydrateRigPanel = async (gameSlug) => {
 
 const init = async () => {
   initAuthShell();
+
+  if (!appState.authToken || !appState.authUser) {
+    window.location.href = "./profile.html?reason=signin-required";
+    return;
+  }
+
+  initRigTimeUnlock();
 
   const game = getGameFromQuery();
   appState.activeGame = game;

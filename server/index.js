@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
+const Stripe = require("stripe");
 const { promisify } = require("util");
 const { ensureDb, readDb, writeDb } = require("./storage");
 const {
@@ -35,6 +36,12 @@ const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "tr
 const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
 const ADS_PER_RIG_SESSION = Number(process.env.NEXFORCE_ADS_PER_RIG_SESSION || 15);
 const REQUIRE_STREAM_HEALTH = (process.env.NEXFORCE_REQUIRE_STREAM_HEALTH || "true").toLowerCase() !== "false";
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
+const STRIPE_DAY_PASS_PRICE_ID = process.env.STRIPE_DAY_PASS_PRICE_ID || "";
+const DAY_PASS_PRICE_USD = Number(process.env.NEXFORCE_DAY_PASS_PRICE_USD || 7);
+const PUBLIC_BASE_URL = process.env.NEXFORCE_PUBLIC_BASE_URL || "http://localhost:5500";
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -1168,6 +1175,77 @@ app.get("/api/games", (_req, res) => {
 app.get("/api/plans", (_req, res) => {
   const db = readDb();
   res.json(db.plans);
+});
+
+app.get("/api/payments/config", (_req, res) => {
+  res.json({
+    stripeEnabled: Boolean(stripe),
+    publishableKey: STRIPE_PUBLISHABLE_KEY || null,
+    dayPassPriceUsd: Number.isFinite(DAY_PASS_PRICE_USD) && DAY_PASS_PRICE_USD > 0 ? DAY_PASS_PRICE_USD : 7,
+    setupUrl: "https://dashboard.stripe.com/register"
+  });
+});
+
+app.post("/api/payments/day-pass/checkout", authMiddleware, sessionRateLimiter, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: "Stripe is not configured",
+      setupUrl: "https://dashboard.stripe.com/register"
+    });
+  }
+
+  const body = req.body || {};
+  const requestedSuccessUrl = typeof body.successUrl === "string" ? body.successUrl.trim() : "";
+  const requestedCancelUrl = typeof body.cancelUrl === "string" ? body.cancelUrl.trim() : "";
+
+  const fallbackSuccessUrl = `${PUBLIC_BASE_URL}/plans.html?checkout=success`;
+  const fallbackCancelUrl = `${PUBLIC_BASE_URL}/plans.html?checkout=cancel`;
+
+  const successUrl = requestedSuccessUrl.startsWith("http") ? requestedSuccessUrl : fallbackSuccessUrl;
+  const cancelUrl = requestedCancelUrl.startsWith("http") ? requestedCancelUrl : fallbackCancelUrl;
+  const amountUsd = Number.isFinite(DAY_PASS_PRICE_USD) && DAY_PASS_PRICE_USD > 0 ? DAY_PASS_PRICE_USD : 7;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: STRIPE_DAY_PASS_PRICE_ID
+        ? [
+            {
+              price: STRIPE_DAY_PASS_PRICE_ID,
+              quantity: 1
+            }
+          ]
+        : [
+            {
+              quantity: 1,
+              price_data: {
+                currency: "usd",
+                unit_amount: Math.round(amountUsd * 100),
+                product_data: {
+                  name: "NexForce Day Pass",
+                  description: "Skip queue for one launch window"
+                }
+              }
+            }
+          ],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        userId: req.auth.user.id,
+        paymentType: "day_pass"
+      }
+    });
+
+    return res.json({
+      checkoutId: session.id,
+      url: session.url
+    });
+  } catch (error) {
+    return res.status(502).json({
+      error: "Failed to create Stripe checkout session",
+      details: error?.message || "unknown_error"
+    });
+  }
 });
 
 app.get("/api/hosts", authMiddleware, requireSchedulerAvailable, (_req, res) => {

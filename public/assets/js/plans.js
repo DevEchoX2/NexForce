@@ -1,9 +1,69 @@
 import {
+  apiRequest,
   appState,
   initAuthShell,
   loadJson,
   toTitle,
 } from "./app.js";
+
+const initDayPassCheckout = async () => {
+  const button = document.querySelector("[data-buy-day-pass]");
+  const status = document.querySelector("[data-day-pass-status]");
+  if (!button || !status) {
+    return;
+  }
+
+  const setStatus = (message, isError = false) => {
+    status.textContent = message;
+    status.className = `text-sm ${isError ? "text-rose-300" : "text-slate-400"}`;
+  };
+
+  try {
+    const config = await apiRequest("/api/payments/config");
+    if (!config.stripeEnabled) {
+      setStatus("Stripe is not configured yet. Create your account first.", true);
+      return;
+    }
+
+    setStatus(`Day Pass checkout is ready ($${config.dayPassPriceUsd}).`);
+  } catch {
+    setStatus("Unable to load payment setup right now.", true);
+  }
+
+  button.addEventListener("click", async () => {
+    if (!appState.authToken || !appState.authUser) {
+      window.location.href = "./profile.html?reason=signin-required";
+      return;
+    }
+
+    button.disabled = true;
+    setStatus("Creating secure checkout...");
+
+    try {
+      const payload = {
+        successUrl: `${window.location.origin}${window.location.pathname}?checkout=success`,
+        cancelUrl: `${window.location.origin}${window.location.pathname}?checkout=cancel`
+      };
+      const checkout = await apiRequest("/api/payments/day-pass/checkout", {
+        method: "POST",
+        auth: true,
+        body: payload
+      });
+
+      if (checkout?.url) {
+        window.location.href = checkout.url;
+        return;
+      }
+
+      setStatus("Checkout URL was not returned.", true);
+    } catch (error) {
+      const message = error?.message || "Checkout failed. Try again.";
+      setStatus(message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+};
 
 const renderPlans = (plans, billingCycle) => {
   const container = document.querySelector("[data-plans-grid]");
@@ -76,6 +136,7 @@ const init = async () => {
 
   hydrateSelectedPlan();
   renderPlans(plans, appState.billingCycle);
+  await initDayPassCheckout();
 };
 
 init().catch((error) => {

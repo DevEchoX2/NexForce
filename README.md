@@ -57,6 +57,8 @@ NexForce/
 - Featured games, library filters, and pricing toggle are fully functional.
 - Launch modal queue/latency/FPS simulation runs client-side.
 - When queue reaches launch state, the app transitions to `play.html` as the in-session surface.
+- Launch and play access now require sign-in (unauthenticated users are redirected to `profile.html`).
+- Rig control "Time Left" is intentionally hidden until the user presses the 🙏 unlock button on the left side of `play.html`.
 - Profile settings now include a **Streaming Transport** mode:
 	- `Auto` (prefers WebRTC when available)
 	- `Force WebRTC`
@@ -133,6 +135,13 @@ Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (defau
 Launch-service default rig capacity is configurable with `NEXFORCE_DEFAULT_RIG_CAPACITY` (default: 40 users per rig).
 Launch-service ad policy is configurable with `NEXFORCE_ADS_PER_RIG_SESSION` (default: 15 video ads per rig session).
 Host stream readiness gating is configurable with `NEXFORCE_REQUIRE_STREAM_HEALTH` (default: `true`).
+Stripe checkout support for day passes is configurable with:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_DAY_PASS_PRICE_ID` (optional; if omitted, server uses dynamic amount pricing)
+- `NEXFORCE_DAY_PASS_PRICE_USD` (default: `7`)
+- `NEXFORCE_PUBLIC_BASE_URL` (used for Stripe success/cancel redirects)
 
 ### Security + reliability hardening
 

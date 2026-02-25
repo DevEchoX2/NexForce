@@ -374,7 +374,7 @@ export const initLaunchModal = () => {
     };
 
     const ensureSignedIn = async () => {
-      if (appState.authToken) {
+      if (appState.authToken && appState.authUser) {
         return;
       }
       const error = new Error("Authentication required");
@@ -436,18 +436,18 @@ export const initLaunchModal = () => {
     } catch (error) {
       const statusCode = Number(error?.status || 0);
       if (statusCode === 401) {
-        const hasLocalSignIn = Boolean(appState.authUser);
-        if (hasLocalSignIn) {
-          launchLocalRuntime("Session auth expired. Starting local runtime...");
-          return;
+        if (statusEl) {
+          statusEl.textContent = "Sign in required";
         }
-
-        launchLocalRuntime("Sign in required. Starting guest runtime...");
+        window.location.href = "./profile.html?reason=signin-required";
         return;
       }
 
       if (statusCode === 403) {
-        launchLocalRuntime("Provider link required. Starting local runtime...");
+        if (statusEl) {
+          statusEl.textContent = "Provider link required";
+        }
+        window.location.href = "./profile.html?reason=provider-link";
         return;
       }
 
