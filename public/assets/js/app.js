@@ -514,6 +514,25 @@ export const signOut = () => {
   appState.authToken = "";
 };
 
+const shouldUseDemoAuthFallback = (error) => {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || "").toLowerCase();
+
+  if (status === 0 || message === "failed to fetch") {
+    return true;
+  }
+
+  if ([404, 502, 503, 504].includes(status)) {
+    return true;
+  }
+
+  return (
+    message.includes("service unavailable") ||
+    message.includes("unexpected response format") ||
+    message.includes("request failed: 404")
+  );
+};
+
 export const signInWithPassword = async ({ email, password }) => {
   let result;
   try {
@@ -522,7 +541,7 @@ export const signInWithPassword = async ({ email, password }) => {
       body: { email, password }
     });
   } catch (error) {
-    if (Number(error?.status || 0) === 0 || error?.message === "Failed to fetch") {
+    if (shouldUseDemoAuthFallback(error)) {
       result = loginDemoUser({ email, password });
     } else {
       throw error;
@@ -541,7 +560,7 @@ export const registerAccount = async ({ name, email, password, tier = "free" }) 
       body: { name, email, password, tier }
     });
   } catch (error) {
-    if (Number(error?.status || 0) === 0 || error?.message === "Failed to fetch") {
+    if (shouldUseDemoAuthFallback(error)) {
       result = registerDemoUser({ name, email, password, tier });
     } else {
       throw error;
