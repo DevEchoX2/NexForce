@@ -39,11 +39,31 @@ const REQUIRE_STREAM_HEALTH = (process.env.NEXFORCE_REQUIRE_STREAM_HEALTH || "tr
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || "";
 const STRIPE_DAY_PASS_PRICE_ID = process.env.STRIPE_DAY_PASS_PRICE_ID || "";
+const STRIPE_PERFORMANCE_MONTHLY_PRICE_ID = process.env.STRIPE_PERFORMANCE_MONTHLY_PRICE_ID || "";
+const STRIPE_PERFORMANCE_YEARLY_PRICE_ID = process.env.STRIPE_PERFORMANCE_YEARLY_PRICE_ID || "";
+const STRIPE_ULTIMATE_MONTHLY_PRICE_ID = process.env.STRIPE_ULTIMATE_MONTHLY_PRICE_ID || "";
+const STRIPE_ULTIMATE_YEARLY_PRICE_ID = process.env.STRIPE_ULTIMATE_YEARLY_PRICE_ID || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const DAY_PASS_PRICE_USD = Number(process.env.NEXFORCE_DAY_PASS_PRICE_USD || 7);
 const DAY_PASS_DURATION_HOURS = Number(process.env.NEXFORCE_DAY_PASS_DURATION_HOURS || 24);
 const PUBLIC_BASE_URL = process.env.NEXFORCE_PUBLIC_BASE_URL || "http://localhost:5500";
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+const paidPlanIds = new Set(["performance", "ultimate"]);
+const billingCycles = new Set(["monthly", "yearly"]);
+const planPriceUsd = {
+  performance: { monthly: 9.99, yearly: 99 },
+  ultimate: { monthly: 19.99, yearly: 199 }
+};
+const stripePlanPriceIds = {
+  performance: {
+    monthly: STRIPE_PERFORMANCE_MONTHLY_PRICE_ID,
+    yearly: STRIPE_PERFORMANCE_YEARLY_PRICE_ID
+  },
+  ultimate: {
+    monthly: STRIPE_ULTIMATE_MONTHLY_PRICE_ID,
+    yearly: STRIPE_ULTIMATE_YEARLY_PRICE_ID
+  }
+};
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -478,29 +498,18 @@ app.post("/api/payments/stripe/webhook", express.raw({ type: "application/json" 
     return res.json({ received: true, duplicate: true });
   }
 
-  if (event.type === "checkout.session.completed") {
-    const checkoutSession = event.data?.object || {};
-    const metadata = checkoutSession.metadata || {};
-    const userId = typeof metadata.userId === "string" ? metadata.userId : "";
-    const paymentType = typeof metadata.paymentType === "string" ? metadata.paymentType : "";
-
-    if (userId && paymentType === "day_pass" && checkoutSession.payment_status === "paid") {
-      grantDayPass(db, userId, {
-        source: "stripe_webhook",
-        checkoutSessionId: checkoutSession.id || null,
-        paymentIntentId: checkoutSession.payment_intent || null,
-        customerId: checkoutSession.customer || null
+  processStripeWebhookEvent(db, event)
+    .then(() => {
+      trackProcessedStripeEvent(db, event.id);
+      writeDb(db);
+      return res.json({ received: true });
+    })
+    .catch((error) => {
+      return res.status(500).json({
+        error: "Failed to process webhook event",
+        details: error?.message || "webhook_processing_failed"
       });
-    }
-  }
-
-  db.processedStripeEventIds.push(event.id);
-  if (db.processedStripeEventIds.length > 2000) {
-    db.processedStripeEventIds = db.processedStripeEventIds.slice(-2000);
-  }
-  writeDb(db);
-
-  return res.json({ received: true });
+    });
 });
 
 app.use(express.json());
@@ -828,43 +837,86 @@ const isHostFresh = (host) => {
   return age <= HOST_HEARTBEAT_TIMEOUT_MS;
 };
 
-const getUserSettings = (db, userId) => {
-  const baseSettings =
-    db.settingsByUserId[userId] || {
-      preferredDevice: "PC",
-      networkProfile: "Balanced",
-      selectedPlan: "free"
-    };
-
-  const nowMs = Date.now();
-  const dayPass = db.dayPassByUserId?.[userId] || null;
-  const expiresAtMs = dayPass?.expiresAt ? new Date(dayPass.expiresAt).getTime() : Number.NaN;
-  const dayPassActive = Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
-
-  if (!dayPassActive) {
-    return baseSettings;
-  }
-
-  const selectedPlan = getPlanRank(baseSettings.selectedPlan) < getPlanRank("performance") ? "performance" : baseSettings.selectedPlan;
-
-  return {
-    ...baseSettings,
-    selectedPlan,
-    dayPass: {
-      active: true,
-      expiresAt: dayPass.expiresAt,
-      remainingSec: Math.floor((expiresAtMs - nowMs) / 1000)
-    }
-  };
-};
-
 const ensurePaymentState = (db) => {
   if (!db.dayPassByUserId || typeof db.dayPassByUserId !== "object") {
     db.dayPassByUserId = {};
   }
+  if (!db.subscriptionsByUserId || typeof db.subscriptionsByUserId !== "object") {
+    db.subscriptionsByUserId = {};
+  }
   if (!Array.isArray(db.processedStripeEventIds)) {
     db.processedStripeEventIds = [];
   }
+};
+
+const normalizePlanId = (value) => {
+  const planId = String(value || "").trim().toLowerCase();
+  return paidPlanIds.has(planId) ? planId : null;
+};
+
+const normalizeBillingCycle = (value) => {
+  const cycle = String(value || "").trim().toLowerCase();
+  return billingCycles.has(cycle) ? cycle : "monthly";
+};
+
+const getActiveDayPass = (db, userId, nowMs = Date.now()) => {
+  ensurePaymentState(db);
+  const dayPass = db.dayPassByUserId[userId] || null;
+  const expiresAtMs = dayPass?.expiresAt ? new Date(dayPass.expiresAt).getTime() : Number.NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+    return null;
+  }
+
+  return {
+    ...dayPass,
+    expiresAtMs,
+    remainingSec: Math.floor((expiresAtMs - nowMs) / 1000)
+  };
+};
+
+const getActiveSubscription = (db, userId, nowMs = Date.now()) => {
+  ensurePaymentState(db);
+  const subscription = db.subscriptionsByUserId[userId] || null;
+  if (!subscription) {
+    return null;
+  }
+
+  const status = String(subscription.status || "").toLowerCase();
+  const activeByStatus = status === "active" || status === "trialing";
+  if (!activeByStatus) {
+    return null;
+  }
+
+  const planId = normalizePlanId(subscription.planId);
+  if (!planId) {
+    return null;
+  }
+
+  const expiresAtMs = subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).getTime() : Number.NaN;
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {
+    return null;
+  }
+
+  return {
+    ...subscription,
+    planId,
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : null
+  };
+};
+
+const getHighestEntitledPlan = (db, userId, nowMs = Date.now()) => {
+  let highest = "free";
+  const subscription = getActiveSubscription(db, userId, nowMs);
+  if (subscription && getPlanRank(subscription.planId) > getPlanRank(highest)) {
+    highest = subscription.planId;
+  }
+
+  const dayPass = getActiveDayPass(db, userId, nowMs);
+  if (dayPass && getPlanRank("performance") > getPlanRank(highest)) {
+    highest = "performance";
+  }
+
+  return highest;
 };
 
 const dayPassDurationMs = () => {
@@ -892,6 +944,304 @@ const grantDayPass = (db, userId, metadata = {}) => {
   };
 
   return db.dayPassByUserId[userId];
+};
+
+const buildPlanLineItem = (planId, billingCycle) => {
+  const normalizedPlan = normalizePlanId(planId);
+  const normalizedCycle = normalizeBillingCycle(billingCycle);
+  const configuredPriceId = stripePlanPriceIds[normalizedPlan]?.[normalizedCycle] || "";
+
+  if (configuredPriceId) {
+    return [
+      {
+        price: configuredPriceId,
+        quantity: 1
+      }
+    ];
+  }
+
+  const amountUsd = planPriceUsd[normalizedPlan]?.[normalizedCycle] || 0;
+  const interval = normalizedCycle === "yearly" ? "year" : "month";
+  const planLabel = normalizedPlan === "ultimate" ? "Ultimate" : "Performance";
+
+  return [
+    {
+      quantity: 1,
+      price_data: {
+        currency: "usd",
+        unit_amount: Math.round(amountUsd * 100),
+        recurring: {
+          interval
+        },
+        product_data: {
+          name: `NexForce ${planLabel}`,
+          description: `${planLabel} plan (${normalizedCycle})`
+        }
+      }
+    }
+  ];
+};
+
+const upsertSubscription = (db, userId, payload = {}) => {
+  ensurePaymentState(db);
+  const planId = normalizePlanId(payload.planId);
+  if (!planId) {
+    return null;
+  }
+
+  const billingCycle = normalizeBillingCycle(payload.billingCycle);
+  const current = db.subscriptionsByUserId[userId] || {};
+  const status = String(payload.status || current.status || "active").toLowerCase();
+  const currentPeriodEnd = payload.currentPeriodEnd || current.currentPeriodEnd || null;
+
+  db.subscriptionsByUserId[userId] = {
+    userId,
+    planId,
+    billingCycle,
+    status,
+    stripeSubscriptionId: payload.stripeSubscriptionId || current.stripeSubscriptionId || null,
+    customerId: payload.customerId || current.customerId || null,
+    checkoutSessionId: payload.checkoutSessionId || current.checkoutSessionId || null,
+    currentPeriodEnd,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (!db.settingsByUserId[userId]) {
+    db.settingsByUserId[userId] = {
+      preferredDevice: "PC",
+      networkProfile: "Balanced",
+      selectedPlan: "free"
+    };
+  }
+
+  if (status === "active" || status === "trialing") {
+    db.settingsByUserId[userId].selectedPlan = planId;
+  }
+
+  return db.subscriptionsByUserId[userId];
+};
+
+const cancelSubscription = (db, userId, metadata = {}) => {
+  ensurePaymentState(db);
+  const current = db.subscriptionsByUserId[userId];
+  if (!current) {
+    return null;
+  }
+
+  db.subscriptionsByUserId[userId] = {
+    ...current,
+    status: "canceled",
+    canceledAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    cancelReason: metadata.reason || "stripe_webhook"
+  };
+
+  return db.subscriptionsByUserId[userId];
+};
+
+const findUserIdByStripeSubscriptionId = (db, stripeSubscriptionId) => {
+  if (!stripeSubscriptionId) {
+    return null;
+  }
+
+  return (
+    Object.entries(db.subscriptionsByUserId || {}).find(([, value]) => value?.stripeSubscriptionId === stripeSubscriptionId)?.[0] || null
+  );
+};
+
+const syncStripeSubscriptionRecord = async (db, userId, stripeSubscriptionId) => {
+  if (!stripe || !stripeSubscriptionId || !userId) {
+    return null;
+  }
+
+  try {
+    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const metadata = subscription.metadata || {};
+    const planId = normalizePlanId(metadata.planId);
+    const billingCycle = normalizeBillingCycle(metadata.billingCycle || (subscription.items?.data?.[0]?.plan?.interval === "year" ? "yearly" : "monthly"));
+
+    if (!planId) {
+      return null;
+    }
+
+    const currentPeriodEnd = Number.isFinite(Number(subscription.current_period_end))
+      ? new Date(Number(subscription.current_period_end) * 1000).toISOString()
+      : null;
+
+    return upsertSubscription(db, userId, {
+      planId,
+      billingCycle,
+      status: subscription.status,
+      stripeSubscriptionId: subscription.id,
+      customerId: subscription.customer || null,
+      currentPeriodEnd
+    });
+  } catch {
+    return null;
+  }
+};
+
+const getUserSettings = (db, userId) => {
+  const baseSettings =
+    db.settingsByUserId[userId] || {
+      preferredDevice: "PC",
+      networkProfile: "Balanced",
+      selectedPlan: "free"
+    };
+
+  const nowMs = Date.now();
+  const requestedPlan = ["free", "performance", "ultimate"].includes(String(baseSettings.selectedPlan || "").toLowerCase())
+    ? String(baseSettings.selectedPlan).toLowerCase()
+    : "free";
+  const highestEntitledPlan = getHighestEntitledPlan(db, userId, nowMs);
+  const selectedPlan =
+    getPlanRank(requestedPlan) <= getPlanRank(highestEntitledPlan) ? requestedPlan : highestEntitledPlan;
+
+  const dayPass = getActiveDayPass(db, userId, nowMs);
+  const subscription = getActiveSubscription(db, userId, nowMs);
+
+  return {
+    ...baseSettings,
+    selectedPlan,
+    entitlementPlan: highestEntitledPlan,
+    dayPass: dayPass
+      ? {
+          active: true,
+          expiresAt: dayPass.expiresAt,
+          remainingSec: dayPass.remainingSec
+        }
+      : {
+          active: false,
+          expiresAt: null,
+          remainingSec: 0
+        },
+    subscription: subscription
+      ? {
+          active: true,
+          planId: subscription.planId,
+          billingCycle: subscription.billingCycle,
+          status: subscription.status,
+          currentPeriodEnd: subscription.currentPeriodEnd || null
+        }
+      : {
+          active: false,
+          planId: null,
+          billingCycle: null,
+          status: null,
+          currentPeriodEnd: null
+        }
+  };
+};
+
+const getSubscriptionRecordForStatus = (db, userId) => {
+  ensurePaymentState(db);
+  const stored = db.subscriptionsByUserId[userId] || null;
+  if (!stored) {
+    return {
+      active: false,
+      planId: null,
+      billingCycle: null,
+      status: null,
+      currentPeriodEnd: null
+    };
+  }
+
+  const normalizedPlan = normalizePlanId(stored.planId);
+  const normalizedCycle = normalizeBillingCycle(stored.billingCycle);
+  const status = String(stored.status || "").toLowerCase() || null;
+  const currentPeriodEnd = stored.currentPeriodEnd || null;
+  const active = Boolean(getActiveSubscription(db, userId));
+
+  return {
+    active,
+    planId: normalizedPlan,
+    billingCycle: normalizedCycle,
+    status,
+    currentPeriodEnd
+  };
+};
+
+const trackProcessedStripeEvent = (db, eventId) => {
+  db.processedStripeEventIds.push(eventId);
+  if (db.processedStripeEventIds.length > 2000) {
+    db.processedStripeEventIds = db.processedStripeEventIds.slice(-2000);
+  }
+};
+
+const processStripeWebhookEvent = async (db, event) => {
+  if (event.type === "checkout.session.completed") {
+    const checkoutSession = event.data?.object || {};
+    const metadata = checkoutSession.metadata || {};
+    const userId = typeof metadata.userId === "string" ? metadata.userId : "";
+    const paymentType = typeof metadata.paymentType === "string" ? metadata.paymentType : "";
+
+    if (!userId) {
+      return;
+    }
+
+    if (paymentType === "day_pass" && checkoutSession.payment_status === "paid") {
+      grantDayPass(db, userId, {
+        source: "stripe_webhook",
+        checkoutSessionId: checkoutSession.id || null,
+        paymentIntentId: checkoutSession.payment_intent || null,
+        customerId: checkoutSession.customer || null
+      });
+      return;
+    }
+
+    if (paymentType === "plan_subscription") {
+      const planId = normalizePlanId(metadata.planId);
+      const billingCycle = normalizeBillingCycle(metadata.billingCycle);
+      if (!planId) {
+        return;
+      }
+
+      upsertSubscription(db, userId, {
+        planId,
+        billingCycle,
+        status: "active",
+        stripeSubscriptionId: checkoutSession.subscription || null,
+        customerId: checkoutSession.customer || null,
+        checkoutSessionId: checkoutSession.id || null
+      });
+
+      if (checkoutSession.subscription) {
+        await syncStripeSubscriptionRecord(db, userId, checkoutSession.subscription);
+      }
+    }
+  }
+
+  if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+    const subscription = event.data?.object || {};
+    const metadata = subscription.metadata || {};
+    const metadataUserId = typeof metadata.userId === "string" ? metadata.userId : "";
+    const userId = metadataUserId || findUserIdByStripeSubscriptionId(db, subscription.id);
+    if (!userId) {
+      return;
+    }
+
+    if (event.type === "customer.subscription.deleted") {
+      cancelSubscription(db, userId, { reason: "stripe_subscription_deleted" });
+      return;
+    }
+
+    const planId = normalizePlanId(metadata.planId);
+    const billingCycle = normalizeBillingCycle(metadata.billingCycle || (subscription.items?.data?.[0]?.plan?.interval === "year" ? "yearly" : "monthly"));
+    const currentPeriodEnd = Number.isFinite(Number(subscription.current_period_end))
+      ? new Date(Number(subscription.current_period_end) * 1000).toISOString()
+      : null;
+
+    if (planId) {
+      upsertSubscription(db, userId, {
+        planId,
+        billingCycle,
+        status: subscription.status,
+        stripeSubscriptionId: subscription.id,
+        customerId: subscription.customer || null,
+        currentPeriodEnd
+      });
+    }
+  }
 };
 
 const assignConnection = (session) => {
@@ -1289,6 +1639,7 @@ app.get("/api/payments/config", (_req, res) => {
     publishableKey: STRIPE_PUBLISHABLE_KEY || null,
     dayPassPriceUsd: Number.isFinite(DAY_PASS_PRICE_USD) && DAY_PASS_PRICE_USD > 0 ? DAY_PASS_PRICE_USD : 7,
     dayPassDurationHours: Number.isFinite(DAY_PASS_DURATION_HOURS) && DAY_PASS_DURATION_HOURS > 0 ? DAY_PASS_DURATION_HOURS : 24,
+    planPricingUsd: planPriceUsd,
     setupUrl: "https://dashboard.stripe.com/register"
   });
 });
@@ -1314,6 +1665,18 @@ app.get("/api/payments/day-pass/status", authMiddleware, (req, res) => {
     active: true,
     expiresAt: entry.expiresAt,
     remainingSec: Math.floor((expiresAtMs - nowMs) / 1000)
+  });
+});
+
+app.get("/api/payments/plans/status", authMiddleware, (req, res) => {
+  const db = readDb();
+  const subscription = getSubscriptionRecordForStatus(db, req.auth.user.id);
+  const settings = getUserSettings(db, req.auth.user.id);
+
+  return res.json({
+    ...subscription,
+    effectivePlan: settings.selectedPlan,
+    entitlementPlan: settings.entitlementPlan
   });
 });
 
@@ -1374,6 +1737,62 @@ app.post("/api/payments/day-pass/checkout", authMiddleware, sessionRateLimiter, 
   } catch (error) {
     return res.status(502).json({
       error: "Failed to create Stripe checkout session",
+      details: error?.message || "unknown_error"
+    });
+  }
+});
+
+app.post("/api/payments/plans/checkout", authMiddleware, sessionRateLimiter, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({
+      error: "Stripe is not configured",
+      setupUrl: "https://dashboard.stripe.com/register"
+    });
+  }
+
+  const body = req.body || {};
+  const planId = normalizePlanId(body.planId);
+  const billingCycle = normalizeBillingCycle(body.billingCycle);
+  const requestedSuccessUrl = typeof body.successUrl === "string" ? body.successUrl.trim() : "";
+  const requestedCancelUrl = typeof body.cancelUrl === "string" ? body.cancelUrl.trim() : "";
+
+  if (!planId) {
+    return res.status(400).json({ error: "Invalid planId. Use performance or ultimate." });
+  }
+
+  const fallbackSuccessUrl = `${PUBLIC_BASE_URL}/plans.html?checkout=success&plan=${encodeURIComponent(planId)}`;
+  const fallbackCancelUrl = `${PUBLIC_BASE_URL}/plans.html?checkout=cancel&plan=${encodeURIComponent(planId)}`;
+  const successUrl = requestedSuccessUrl.startsWith("http") ? requestedSuccessUrl : fallbackSuccessUrl;
+  const cancelUrl = requestedCancelUrl.startsWith("http") ? requestedCancelUrl : fallbackCancelUrl;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: buildPlanLineItem(planId, billingCycle),
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        userId: req.auth.user.id,
+        paymentType: "plan_subscription",
+        planId,
+        billingCycle
+      },
+      subscription_data: {
+        metadata: {
+          userId: req.auth.user.id,
+          planId,
+          billingCycle
+        }
+      }
+    });
+
+    return res.json({
+      checkoutId: session.id,
+      url: session.url
+    });
+  } catch (error) {
+    return res.status(502).json({
+      error: "Failed to create plan checkout session",
       details: error?.message || "unknown_error"
     });
   }
@@ -1662,9 +2081,7 @@ app.post("/api/auth/register", authRateLimiter, async (req, res) => {
       }
 
       const credentials = await createPasswordHash(normalizedPassword);
-      const selectedTier = allowedUserPlans.has(String(tier || "").toLowerCase())
-        ? String(tier).toLowerCase()
-        : "free";
+      const selectedTier = "free";
       const timestamp = new Date().toISOString();
       const user = {
         id: `user_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
@@ -1692,9 +2109,7 @@ app.post("/api/auth/register", authRateLimiter, async (req, res) => {
     }
 
     const credentials = await createPasswordHash(normalizedPassword);
-    const selectedTier = allowedUserPlans.has(String(tier || "").toLowerCase())
-      ? String(tier).toLowerCase()
-      : "free";
+    const selectedTier = "free";
     const timestamp = new Date().toISOString();
     const user = {
       id: `user_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
@@ -2014,6 +2429,15 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
 
   if (!valid.has(selectedPlan)) {
     return res.status(400).json({ error: "Invalid plan" });
+  }
+
+  const highestEntitledPlan = getHighestEntitledPlan(db, req.auth.user.id);
+  if (getPlanRank(selectedPlan) > getPlanRank(highestEntitledPlan)) {
+    return res.status(403).json({
+      error: "Payment required for selected plan",
+      code: "payment_required",
+      entitlementPlan: highestEntitledPlan
+    });
   }
 
   const current = db.settingsByUserId[req.auth.user.id] || {

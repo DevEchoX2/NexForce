@@ -62,6 +62,7 @@ const defaultDb = {
   authSessions: [],
   linkedAccountsByUserId: {},
   dayPassByUserId: {},
+  subscriptionsByUserId: {},
   processedStripeEventIds: [],
   launchTickets: [],
   settingsByUserId: {
@@ -268,6 +269,10 @@ const normalizeDb = (data) => {
 
   if (!normalized.dayPassByUserId || typeof normalized.dayPassByUserId !== "object") {
     normalized.dayPassByUserId = {};
+  }
+
+  if (!normalized.subscriptionsByUserId || typeof normalized.subscriptionsByUserId !== "object") {
+    normalized.subscriptionsByUserId = {};
   }
 
   if (!Array.isArray(normalized.processedStripeEventIds)) {

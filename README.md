@@ -135,17 +135,27 @@ Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (defau
 Launch-service default rig capacity is configurable with `NEXFORCE_DEFAULT_RIG_CAPACITY` (default: 40 users per rig).
 Launch-service ad policy is configurable with `NEXFORCE_ADS_PER_RIG_SESSION` (default: 15 video ads per rig session).
 Host stream readiness gating is configurable with `NEXFORCE_REQUIRE_STREAM_HEALTH` (default: `true`).
-Stripe checkout support for day passes is configurable with:
+Stripe checkout support for day passes + paid plans is configurable with:
 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_DAY_PASS_PRICE_ID` (optional; if omitted, server uses dynamic amount pricing)
+- `STRIPE_PERFORMANCE_MONTHLY_PRICE_ID` (optional)
+- `STRIPE_PERFORMANCE_YEARLY_PRICE_ID` (optional)
+- `STRIPE_ULTIMATE_MONTHLY_PRICE_ID` (optional)
+- `STRIPE_ULTIMATE_YEARLY_PRICE_ID` (optional)
 - `STRIPE_WEBHOOK_SECRET` (required to verify Stripe webhook signatures)
 - `NEXFORCE_DAY_PASS_PRICE_USD` (default: `7`)
 - `NEXFORCE_DAY_PASS_DURATION_HOURS` (default: `24`)
 - `NEXFORCE_PUBLIC_BASE_URL` (used for Stripe success/cancel redirects)
 
-Stripe webhook endpoint:
+Payment endpoints:
+
+- `GET /api/payments/config`
+- `GET /api/payments/day-pass/status` (user auth required)
+- `POST /api/payments/day-pass/checkout` (user auth required)
+- `GET /api/payments/plans/status` (user auth required)
+- `POST /api/payments/plans/checkout` (user auth required)
 
 - `POST /api/payments/stripe/webhook` (expects raw JSON + Stripe signature header)
 

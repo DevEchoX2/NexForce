@@ -6,6 +6,81 @@ import {
   toTitle,
 } from "./app.js";
 
+const setPlanStatus = (message, isError = false) => {
+  const status = document.querySelector("[data-plan-sub-status]");
+  if (!status) {
+    return;
+  }
+  status.textContent = message;
+  status.className = `text-sm ${isError ? "text-rose-300" : "text-slate-400"}`;
+};
+
+const initPlanCheckout = async () => {
+  const button = document.querySelector("[data-buy-selected-plan]");
+  if (!button) {
+    return;
+  }
+
+  try {
+    const config = await apiRequest("/api/payments/config");
+    if (!config.stripeEnabled) {
+      setPlanStatus("Stripe is not configured yet. Create your account first.", true);
+      return;
+    }
+
+    if (appState.authToken && appState.authUser) {
+      const current = await apiRequest("/api/payments/plans/status", { auth: true });
+      if (current.active && current.planId) {
+        setPlanStatus(`Active plan: ${toTitle(current.planId)} (${toTitle(current.billingCycle || "monthly")}).`);
+      }
+    }
+  } catch {
+    setPlanStatus("Unable to load subscription status right now.", true);
+  }
+
+  button.addEventListener("click", async () => {
+    if (!appState.authToken || !appState.authUser) {
+      window.location.href = "./profile.html?reason=signin-required";
+      return;
+    }
+
+    const selectedPlan = String(appState.selectedPlan || "free").toLowerCase();
+    if (selectedPlan === "free") {
+      setPlanStatus("Free plan does not require checkout.");
+      return;
+    }
+
+    button.disabled = true;
+    setPlanStatus(`Starting ${toTitle(selectedPlan)} checkout...`);
+
+    try {
+      const payload = {
+        planId: selectedPlan,
+        billingCycle: appState.billingCycle || "monthly",
+        successUrl: `${window.location.origin}${window.location.pathname}?checkout=success&plan=${encodeURIComponent(selectedPlan)}`,
+        cancelUrl: `${window.location.origin}${window.location.pathname}?checkout=cancel&plan=${encodeURIComponent(selectedPlan)}`
+      };
+
+      const checkout = await apiRequest("/api/payments/plans/checkout", {
+        method: "POST",
+        auth: true,
+        body: payload
+      });
+
+      if (checkout?.url) {
+        window.location.href = checkout.url;
+        return;
+      }
+
+      setPlanStatus("Checkout URL was not returned.", true);
+    } catch (error) {
+      setPlanStatus(error?.message || "Plan checkout failed. Try again.", true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+};
+
 const initDayPassCheckout = async () => {
   const button = document.querySelector("[data-buy-day-pass]");
   const status = document.querySelector("[data-day-pass-status]");
@@ -107,7 +182,30 @@ const renderPlans = (plans, billingCycle) => {
   container.querySelectorAll("[data-plan-select]").forEach((button) => {
     button.addEventListener("click", async () => {
       const selectedPlan = button.getAttribute("data-plan-select") || "free";
-      appState.selectedPlan = selectedPlan;
+      if (appState.authToken && appState.authUser) {
+        try {
+          const saved = await apiRequest("/api/profile/plan", {
+            method: "PUT",
+            auth: true,
+            body: {
+              selectedPlan
+            }
+          });
+          appState.selectedPlan = saved.selectedPlan || selectedPlan;
+          setPlanStatus(`Selected plan updated to ${toTitle(appState.selectedPlan)}.`);
+        } catch (error) {
+          if (error?.payload?.code === "payment_required") {
+            appState.selectedPlan = error?.payload?.entitlementPlan || "free";
+            setPlanStatus("Payment required for this plan. Use Checkout Selected Plan.", true);
+          } else {
+            appState.selectedPlan = selectedPlan;
+            setPlanStatus(error?.message || "Could not save selected plan to backend.", true);
+          }
+        }
+      } else {
+        appState.selectedPlan = selectedPlan;
+      }
+
       renderPlans(plans, appState.billingCycle);
       hydrateSelectedPlan();
     });
@@ -123,6 +221,16 @@ const hydrateSelectedPlan = () => {
 
 const init = async () => {
   initAuthShell();
+  if (appState.authToken && appState.authUser) {
+    try {
+      const settings = await apiRequest("/api/profile/settings", { auth: true });
+      if (settings?.selectedPlan) {
+        appState.selectedPlan = settings.selectedPlan;
+      }
+    } catch {
+    }
+  }
+
   const plans = await loadJson("./data/plans.json");
   const billingToggle = document.querySelector("[data-billing-toggle]");
 
@@ -136,6 +244,7 @@ const init = async () => {
 
   hydrateSelectedPlan();
   renderPlans(plans, appState.billingCycle);
+  await initPlanCheckout();
   await initDayPassCheckout();
 };
 
