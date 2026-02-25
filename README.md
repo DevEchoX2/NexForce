@@ -122,6 +122,8 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `POST /api/launch/ticket/verify`
 - `GET /api/launch/service/rigs`
 - `PUT /api/launch/service/rigs/:rigId/capacity` (host key required)
+- `PUT /api/hosts/:hostId/stream-health` (host key required)
+- `GET /api/stream/sessions/:sessionId/bootstrap` (user auth required)
 - `GET /api/control/monitoring`
 - `GET /api/metrics`
 - `GET /api/control/autoscale`
@@ -130,6 +132,7 @@ Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
 Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (default: 5 minutes).
 Launch-service default rig capacity is configurable with `NEXFORCE_DEFAULT_RIG_CAPACITY` (default: 40 users per rig).
 Launch-service ad policy is configurable with `NEXFORCE_ADS_PER_RIG_SESSION` (default: 15 video ads per rig session).
+Host stream readiness gating is configurable with `NEXFORCE_REQUIRE_STREAM_HEALTH` (default: `true`).
 
 ### Security + reliability hardening
 
@@ -253,8 +256,23 @@ npm run host:agent
 - `NEXFORCE_AGENT_HOST_ID` (default: `host-<pid>`)
 - `NEXFORCE_AGENT_HOST_NAME` (default: `NexForce Agent <hostId>`)
 - `NEXFORCE_AGENT_REGION` (default: `local`)
-- `NEXFORCE_AGENT_CAPACITY` (default: `1`)
+- `NEXFORCE_AGENT_CAPACITY` (default: `40`)
 - `NEXFORCE_AGENT_HEARTBEAT_MS` (default: `15000`)
+- `NEXFORCE_AGENT_STREAM_SOFTWARE` (default: `sunshine`)
+- `NEXFORCE_AGENT_STREAM_PROTOCOL` (default: `moonlight`)
+- `NEXFORCE_AGENT_STREAM_REMOTE_NETWORK` (default: `tailscale`)
+- `NEXFORCE_AGENT_STREAM_BACKUP_CONTROL` (default: `parsec`)
+- `NEXFORCE_AGENT_AUDIO_READY` (default: `true`)
+- `NEXFORCE_AGENT_NETWORK_OK` (default: `true`)
+- `NEXFORCE_AGENT_NETWORK_TYPE` (default: `ethernet`)
+- `NEXFORCE_AGENT_UPLINK_MBPS` (default: `100`)
+- `NEXFORCE_AGENT_DOWNLINK_MBPS` (default: `100`)
+- `NEXFORCE_AGENT_JITTER_MS` (default: `8`)
+- `NEXFORCE_AGENT_PACKET_LOSS_PCT` (default: `0`)
+- `NEXFORCE_AGENT_STREAM_RESOLUTION` (default: `1080p`)
+- `NEXFORCE_AGENT_STREAM_FPS` (default: `60`)
+- `NEXFORCE_AGENT_STREAM_BITRATE_MBPS` (default: `20`)
+- `NEXFORCE_AGENT_STREAM_CODEC` (default: `hevc`)
 
 ## Step 5 (session lifecycle watchdog)
 

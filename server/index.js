@@ -34,6 +34,7 @@ const ORCHESTRATOR_KEY = process.env.NEXFORCE_ORCHESTRATOR_KEY || "nexforce-orch
 const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "true").toLowerCase() !== "false";
 const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
 const ADS_PER_RIG_SESSION = Number(process.env.NEXFORCE_ADS_PER_RIG_SESSION || 15);
+const REQUIRE_STREAM_HEALTH = (process.env.NEXFORCE_REQUIRE_STREAM_HEALTH || "true").toLowerCase() !== "false";
 
 const defaultAllowedOrigins = [
   "http://localhost:5500",
@@ -224,6 +225,41 @@ const normalizeHostCapacity = (value, fallback = DEFAULT_RIG_CAPACITY) => {
     return Math.max(1, Math.floor(fallback || DEFAULT_RIG_CAPACITY || 10));
   }
   return Math.floor(parsed);
+};
+
+const normalizeHostStreamHealth = (value = {}) => {
+  const streamProfile = value?.streamProfile && typeof value.streamProfile === "object" ? value.streamProfile : {};
+
+  const streamFps = Number(streamProfile.fps);
+  const streamBitrateMbps = Number(streamProfile.bitrateMbps);
+
+  return {
+    streamSoftware:
+      typeof value.streamSoftware === "string" && value.streamSoftware.trim() ? value.streamSoftware.trim().toLowerCase() : "sunshine",
+    streamProtocol:
+      typeof value.streamProtocol === "string" && value.streamProtocol.trim() ? value.streamProtocol.trim().toLowerCase() : "moonlight",
+    remoteNetwork:
+      typeof value.remoteNetwork === "string" && value.remoteNetwork.trim() ? value.remoteNetwork.trim().toLowerCase() : "tailscale",
+    backupControl:
+      typeof value.backupControl === "string" && value.backupControl.trim() ? value.backupControl.trim().toLowerCase() : "parsec",
+    audioReady: value.audioReady !== false,
+    networkOk: value.networkOk !== false,
+    networkType:
+      typeof value.networkType === "string" && value.networkType.trim() ? value.networkType.trim().toLowerCase() : "ethernet",
+    uplinkMbps: Number.isFinite(Number(value.uplinkMbps)) ? Math.max(0, Math.floor(Number(value.uplinkMbps))) : 100,
+    downlinkMbps: Number.isFinite(Number(value.downlinkMbps)) ? Math.max(0, Math.floor(Number(value.downlinkMbps))) : 100,
+    jitterMs: Number.isFinite(Number(value.jitterMs)) ? Math.max(0, Math.floor(Number(value.jitterMs))) : 8,
+    packetLossPct: Number.isFinite(Number(value.packetLossPct)) ? Math.max(0, Number(value.packetLossPct)) : 0,
+    streamProfile: {
+      resolution:
+        typeof streamProfile.resolution === "string" && streamProfile.resolution.trim() ? streamProfile.resolution.trim() : "1080p",
+      fps: Number.isFinite(streamFps) && streamFps > 0 ? Math.floor(streamFps) : 60,
+      bitrateMbps: Number.isFinite(streamBitrateMbps) && streamBitrateMbps > 0 ? Math.floor(streamBitrateMbps) : 20,
+      codec:
+        typeof streamProfile.codec === "string" && streamProfile.codec.trim() ? streamProfile.codec.trim().toLowerCase() : "hevc"
+    },
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date().toISOString()
+  };
 };
 
 const normalizeHostSlotPolicy = (slotPolicy = {}) => {
@@ -596,6 +632,11 @@ const isHostCompatible = (host, session) => {
     return false;
   }
 
+  const streamHealth = normalizeHostStreamHealth(host.streamHealth);
+  if (REQUIRE_STREAM_HEALTH && (!streamHealth.audioReady || !streamHealth.networkOk)) {
+    return false;
+  }
+
   const capabilities = normalizeHostCapabilities(host.capabilities);
   const required = getPlanHostRequirement(session.plan);
 
@@ -741,6 +782,7 @@ const getUserSettings = (db, userId) => {
 };
 
 const assignConnection = (session) => {
+  const streamHealth = normalizeHostStreamHealth(session.streamHealth || {});
   session.connection = {
     mode: "placeholder",
     playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`,
@@ -748,6 +790,16 @@ const assignConnection = (session) => {
     adPolicy: {
       adsPlanned: Math.max(0, Math.floor(ADS_PER_RIG_SESSION)),
       adUnit: "video"
+    },
+    stream: {
+      software: streamHealth.streamSoftware,
+      protocol: streamHealth.streamProtocol,
+      remoteNetwork: streamHealth.remoteNetwork,
+      backupControl: streamHealth.backupControl,
+      audioReady: streamHealth.audioReady,
+      networkOk: streamHealth.networkOk,
+      networkType: streamHealth.networkType,
+      profile: streamHealth.streamProfile
     }
   };
 };
@@ -768,7 +820,8 @@ const buildRigSummary = (host) => {
     maxUsers,
     availableUsers,
     saturationPct,
-    acceptingUsers: host.status === "online" && normalizeHostMode(host.mode) === hostMode.active && availableUsers > 0
+    acceptingUsers: host.status === "online" && normalizeHostMode(host.mode) === hostMode.active && availableUsers > 0,
+    streamHealth: normalizeHostStreamHealth(host.streamHealth)
   };
 };
 
@@ -831,6 +884,12 @@ const reconcileHostsAndSessions = (db) => {
     const normalizedSlotPolicy = normalizeHostSlotPolicy(host.slotPolicy);
     if (JSON.stringify(host.slotPolicy || {}) !== JSON.stringify(normalizedSlotPolicy)) {
       host.slotPolicy = normalizedSlotPolicy;
+      changed = true;
+    }
+
+    const normalizedStreamHealth = normalizeHostStreamHealth(host.streamHealth);
+    if (JSON.stringify(host.streamHealth || {}) !== JSON.stringify(normalizedStreamHealth)) {
+      host.streamHealth = normalizedStreamHealth;
       changed = true;
     }
 
@@ -1021,6 +1080,7 @@ const promoteQueue = (db) => {
       session.hostId = host.id;
       session.startedAt = new Date().toISOString();
       session.assignedBy = getAssignmentReason(host, session);
+      session.streamHealth = normalizeHostStreamHealth(host.streamHealth);
       assignConnection(session);
       host.activeSessions += 1;
       recordAssignment(db, session, host);
@@ -1145,8 +1205,35 @@ app.put("/api/launch/service/rigs/:rigId/capacity", hostAuthMiddleware, (req, re
   res.json(buildRigSummary(host));
 });
 
+app.put("/api/hosts/:hostId/stream-health", hostAuthMiddleware, (req, res) => {
+  const { hostId } = req.params;
+  const db = readDb();
+  const host = db.gameHosts.find((entry) => entry.id === hostId);
+
+  if (!host) {
+    return res.status(404).json({ error: "Host not found" });
+  }
+
+  host.streamHealth = normalizeHostStreamHealth({
+    ...(host.streamHealth || {}),
+    ...(req.body || {}),
+    updatedAt: new Date().toISOString()
+  });
+
+  appendSchedulerEvent(db, "host_stream_health_updated", {
+    hostId: host.id,
+    audioReady: host.streamHealth.audioReady,
+    networkOk: host.streamHealth.networkOk,
+    networkType: host.streamHealth.networkType
+  });
+
+  promoteQueue(db);
+  writeDb(db);
+  res.json({ success: true, host: buildRigSummary(host) });
+});
+
 app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
-  const { hostId, name, region = "local", capacity = DEFAULT_RIG_CAPACITY, capabilities, mode, slotPolicy } = req.body || {};
+  const { hostId, name, region = "local", capacity = DEFAULT_RIG_CAPACITY, capabilities, mode, slotPolicy, streamHealth } = req.body || {};
   if (!hostId || !name) {
     return res.status(400).json({ error: "hostId and name are required" });
   }
@@ -1161,6 +1248,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     existing.capabilities = normalizeHostCapabilities(capabilities || existing.capabilities);
     existing.mode = normalizeHostMode(mode || existing.mode);
     existing.slotPolicy = normalizeHostSlotPolicy(slotPolicy || existing.slotPolicy);
+    existing.streamHealth = normalizeHostStreamHealth(streamHealth || existing.streamHealth);
     existing.status = "online";
     if (existing.mode === hostMode.maintenance) {
       existing.status = "offline";
@@ -1186,6 +1274,7 @@ app.post("/api/hosts/register", hostAuthMiddleware, (req, res) => {
     mode: normalizeHostMode(mode),
     capabilities: normalizeHostCapabilities(capabilities),
     slotPolicy: normalizeHostSlotPolicy(slotPolicy),
+    streamHealth: normalizeHostStreamHealth(streamHealth),
     lastHeartbeatAt: new Date().toISOString()
   };
 
@@ -1216,6 +1305,15 @@ app.post("/api/hosts/:hostId/heartbeat", hostAuthMiddleware, (req, res) => {
   if (normalizeHostMode(host.mode) !== hostMode.maintenance) {
     host.status = "online";
   }
+
+  if (req.body && typeof req.body === "object" && req.body.streamHealth) {
+    host.streamHealth = normalizeHostStreamHealth({
+      ...(host.streamHealth || {}),
+      ...req.body.streamHealth,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
   host.lastHeartbeatAt = new Date().toISOString();
   promoteQueue(db);
   writeDb(db);
@@ -1819,6 +1917,7 @@ app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, ses
   db.sessions.push(session);
 
   if (host) {
+    session.streamHealth = normalizeHostStreamHealth(host.streamHealth);
     assignConnection(session);
     host.activeSessions += 1;
     recordAssignment(db, session, host);
@@ -1867,6 +1966,58 @@ app.get("/api/sessions/me", authMiddleware, requireSchedulerAvailable, (req, res
   });
 
   res.json(hydrated);
+});
+
+app.get("/api/stream/sessions/:sessionId/bootstrap", authMiddleware, requireSchedulerAvailable, (req, res) => {
+  const { sessionId } = req.params;
+  const db = readDb();
+  const session = db.sessions.find((entry) => entry.id === sessionId && entry.userId === req.auth.user.id);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status !== "active" && session.status !== "disconnected") {
+    return res.status(409).json({ error: "Session is not stream-ready" });
+  }
+
+  const host = db.gameHosts.find((entry) => entry.id === session.hostId);
+  if (!host) {
+    return res.status(409).json({ error: "Assigned host unavailable" });
+  }
+
+  const streamHealth = normalizeHostStreamHealth(host.streamHealth);
+
+  res.json({
+    sessionId: session.id,
+    gameSlug: session.gameSlug,
+    gameTitle: session.gameTitle,
+    status: session.status,
+    host: {
+      id: host.id,
+      name: host.name,
+      region: host.region
+    },
+    stream: {
+      software: streamHealth.streamSoftware,
+      protocol: streamHealth.streamProtocol,
+      remoteNetwork: streamHealth.remoteNetwork,
+      backupControl: streamHealth.backupControl,
+      profile: streamHealth.streamProfile,
+      audioReady: streamHealth.audioReady,
+      networkOk: streamHealth.networkOk,
+      networkType: streamHealth.networkType,
+      uplinkMbps: streamHealth.uplinkMbps,
+      downlinkMbps: streamHealth.downlinkMbps,
+      jitterMs: streamHealth.jitterMs,
+      packetLossPct: streamHealth.packetLossPct
+    },
+    adPolicy: {
+      adsPlanned: Math.max(0, Math.floor(ADS_PER_RIG_SESSION)),
+      adUnit: "video"
+    },
+    playUrl: `/play.html?game=${encodeURIComponent(session.gameTitle)}`
+  });
 });
 
 app.post("/api/sessions/:sessionId/disconnect", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {

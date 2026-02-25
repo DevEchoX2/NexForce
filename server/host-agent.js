@@ -5,7 +5,7 @@ const HOST_KEY = process.env.NEXFORCE_HOST_KEY || "nexforce-host-key";
 const HOST_ID = process.env.NEXFORCE_AGENT_HOST_ID || `host-${process.pid}`;
 const HOST_NAME = process.env.NEXFORCE_AGENT_HOST_NAME || `NexForce Agent ${HOST_ID}`;
 const HOST_REGION = process.env.NEXFORCE_AGENT_REGION || "local";
-const HOST_CAPACITY = Number(process.env.NEXFORCE_AGENT_CAPACITY || 1);
+const HOST_CAPACITY = Number(process.env.NEXFORCE_AGENT_CAPACITY || 40);
 const HOST_MODE = process.env.NEXFORCE_AGENT_MODE || "active";
 const HOST_GPU_TIER = process.env.NEXFORCE_AGENT_GPU_TIER || "basic";
 const HOST_MAX_FPS = Number(process.env.NEXFORCE_AGENT_MAX_FPS || 60);
@@ -17,6 +17,21 @@ const HOST_FREE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_FREE_RESERVED_M
 const HOST_PERFORMANCE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_PERFORMANCE_RESERVED_MIN || 0);
 const HOST_ULTIMATE_RESERVED_MIN = Number(process.env.NEXFORCE_AGENT_ULTIMATE_RESERVED_MIN || 0);
 const HEARTBEAT_INTERVAL_MS = Number(process.env.NEXFORCE_AGENT_HEARTBEAT_MS || 15000);
+const STREAM_SOFTWARE = process.env.NEXFORCE_AGENT_STREAM_SOFTWARE || "sunshine";
+const STREAM_PROTOCOL = process.env.NEXFORCE_AGENT_STREAM_PROTOCOL || "moonlight";
+const STREAM_REMOTE_NETWORK = process.env.NEXFORCE_AGENT_STREAM_REMOTE_NETWORK || "tailscale";
+const STREAM_BACKUP_CONTROL = process.env.NEXFORCE_AGENT_STREAM_BACKUP_CONTROL || "parsec";
+const STREAM_AUDIO_READY = (process.env.NEXFORCE_AGENT_AUDIO_READY || "true").toLowerCase() !== "false";
+const STREAM_NETWORK_OK = (process.env.NEXFORCE_AGENT_NETWORK_OK || "true").toLowerCase() !== "false";
+const STREAM_NETWORK_TYPE = process.env.NEXFORCE_AGENT_NETWORK_TYPE || "ethernet";
+const STREAM_UPLINK_MBPS = Number(process.env.NEXFORCE_AGENT_UPLINK_MBPS || 100);
+const STREAM_DOWNLINK_MBPS = Number(process.env.NEXFORCE_AGENT_DOWNLINK_MBPS || 100);
+const STREAM_JITTER_MS = Number(process.env.NEXFORCE_AGENT_JITTER_MS || 8);
+const STREAM_PACKET_LOSS_PCT = Number(process.env.NEXFORCE_AGENT_PACKET_LOSS_PCT || 0);
+const STREAM_PROFILE_RESOLUTION = process.env.NEXFORCE_AGENT_STREAM_RESOLUTION || "1080p";
+const STREAM_PROFILE_FPS = Number(process.env.NEXFORCE_AGENT_STREAM_FPS || 60);
+const STREAM_PROFILE_BITRATE_MBPS = Number(process.env.NEXFORCE_AGENT_STREAM_BITRATE_MBPS || 20);
+const STREAM_PROFILE_CODEC = process.env.NEXFORCE_AGENT_STREAM_CODEC || "hevc";
 const RETRY_BASE_MS = Number(process.env.NEXFORCE_AGENT_RETRY_BASE_MS || 1000);
 const RETRY_MAX_MS = Number(process.env.NEXFORCE_AGENT_RETRY_MAX_MS || 15000);
 const REGISTER_MAX_RETRIES = Number(process.env.NEXFORCE_AGENT_REGISTER_MAX_RETRIES || 10);
@@ -47,6 +62,32 @@ const effectiveRegisterMaxRetries = Number.isFinite(REGISTER_MAX_RETRIES) ? Math
 const hostHeaders = {
   "Content-Type": "application/json",
   "x-host-key": HOST_KEY
+};
+
+const getStreamHealthPayload = () => {
+  return {
+    streamSoftware: String(STREAM_SOFTWARE || "sunshine").toLowerCase(),
+    streamProtocol: String(STREAM_PROTOCOL || "moonlight").toLowerCase(),
+    remoteNetwork: String(STREAM_REMOTE_NETWORK || "tailscale").toLowerCase(),
+    backupControl: String(STREAM_BACKUP_CONTROL || "parsec").toLowerCase(),
+    audioReady: STREAM_AUDIO_READY,
+    networkOk: STREAM_NETWORK_OK,
+    networkType: String(STREAM_NETWORK_TYPE || "ethernet").toLowerCase(),
+    uplinkMbps: Number.isFinite(STREAM_UPLINK_MBPS) && STREAM_UPLINK_MBPS >= 0 ? Math.floor(STREAM_UPLINK_MBPS) : 100,
+    downlinkMbps: Number.isFinite(STREAM_DOWNLINK_MBPS) && STREAM_DOWNLINK_MBPS >= 0 ? Math.floor(STREAM_DOWNLINK_MBPS) : 100,
+    jitterMs: Number.isFinite(STREAM_JITTER_MS) && STREAM_JITTER_MS >= 0 ? Math.floor(STREAM_JITTER_MS) : 8,
+    packetLossPct: Number.isFinite(STREAM_PACKET_LOSS_PCT) && STREAM_PACKET_LOSS_PCT >= 0 ? Number(STREAM_PACKET_LOSS_PCT) : 0,
+    streamProfile: {
+      resolution: STREAM_PROFILE_RESOLUTION || "1080p",
+      fps: Number.isFinite(STREAM_PROFILE_FPS) && STREAM_PROFILE_FPS > 0 ? Math.floor(STREAM_PROFILE_FPS) : 60,
+      bitrateMbps:
+        Number.isFinite(STREAM_PROFILE_BITRATE_MBPS) && STREAM_PROFILE_BITRATE_MBPS > 0
+          ? Math.floor(STREAM_PROFILE_BITRATE_MBPS)
+          : 20,
+      codec: String(STREAM_PROFILE_CODEC || "hevc").toLowerCase()
+    },
+    updatedAt: new Date().toISOString()
+  };
 };
 
 const requestJson = async (path, options = {}) => {
@@ -123,7 +164,8 @@ const registerHost = async () => {
           Number.isFinite(HOST_ULTIMATE_RESERVED_MIN) && HOST_ULTIMATE_RESERVED_MIN >= 0
             ? Math.floor(HOST_ULTIMATE_RESERVED_MIN)
             : 0
-      }
+      },
+      streamHealth: getStreamHealthPayload()
     })
   });
 };
@@ -132,7 +174,7 @@ const sendHeartbeat = async () => {
   return requestJson(`/api/hosts/${encodeURIComponent(HOST_ID)}/heartbeat`, {
     method: "POST",
     headers: hostHeaders,
-    body: JSON.stringify({})
+    body: JSON.stringify({ streamHealth: getStreamHealthPayload() })
   });
 };
 
@@ -231,7 +273,7 @@ const shutdown = async (signal) => {
 
 const bootstrap = async () => {
   console.log(
-    `[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}, mode=${HOST_MODE}, gpuTier=${HOST_GPU_TIER}, maxFps=${HOST_MAX_FPS}, reserves=${HOST_FREE_RESERVED_MIN}/${HOST_PERFORMANCE_RESERVED_MIN}/${HOST_ULTIMATE_RESERVED_MIN}`
+    `[host-agent] starting with API=${API_BASE_URL}, hostId=${HOST_ID}, region=${HOST_REGION}, capacity=${HOST_CAPACITY}, mode=${HOST_MODE}, gpuTier=${HOST_GPU_TIER}, maxFps=${HOST_MAX_FPS}, stream=${STREAM_SOFTWARE}/${STREAM_PROTOCOL}/${STREAM_REMOTE_NETWORK}, audioReady=${STREAM_AUDIO_READY}, networkOk=${STREAM_NETWORK_OK}, netType=${STREAM_NETWORK_TYPE}, reserves=${HOST_FREE_RESERVED_MIN}/${HOST_PERFORMANCE_RESERVED_MIN}/${HOST_ULTIMATE_RESERVED_MIN}`
   );
 
   try {

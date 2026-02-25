@@ -12,6 +12,40 @@ const normalizeHostCapacity = (value, fallback = DEFAULT_RIG_CAPACITY) => {
   return Math.floor(parsed);
 };
 
+const normalizeHostStreamHealth = (value = {}) => {
+  const streamProfile = value?.streamProfile && typeof value.streamProfile === "object" ? value.streamProfile : {};
+  const parsedFps = Number(streamProfile.fps);
+  const parsedBitrate = Number(streamProfile.bitrateMbps);
+
+  return {
+    streamSoftware:
+      typeof value.streamSoftware === "string" && value.streamSoftware.trim() ? value.streamSoftware.trim().toLowerCase() : "sunshine",
+    streamProtocol:
+      typeof value.streamProtocol === "string" && value.streamProtocol.trim() ? value.streamProtocol.trim().toLowerCase() : "moonlight",
+    remoteNetwork:
+      typeof value.remoteNetwork === "string" && value.remoteNetwork.trim() ? value.remoteNetwork.trim().toLowerCase() : "tailscale",
+    backupControl:
+      typeof value.backupControl === "string" && value.backupControl.trim() ? value.backupControl.trim().toLowerCase() : "parsec",
+    audioReady: value.audioReady !== false,
+    networkOk: value.networkOk !== false,
+    networkType:
+      typeof value.networkType === "string" && value.networkType.trim() ? value.networkType.trim().toLowerCase() : "ethernet",
+    uplinkMbps: Number.isFinite(Number(value.uplinkMbps)) ? Math.max(0, Math.floor(Number(value.uplinkMbps))) : 100,
+    downlinkMbps: Number.isFinite(Number(value.downlinkMbps)) ? Math.max(0, Math.floor(Number(value.downlinkMbps))) : 100,
+    jitterMs: Number.isFinite(Number(value.jitterMs)) ? Math.max(0, Math.floor(Number(value.jitterMs))) : 8,
+    packetLossPct: Number.isFinite(Number(value.packetLossPct)) ? Math.max(0, Number(value.packetLossPct)) : 0,
+    streamProfile: {
+      resolution:
+        typeof streamProfile.resolution === "string" && streamProfile.resolution.trim() ? streamProfile.resolution.trim() : "1080p",
+      fps: Number.isFinite(parsedFps) && parsedFps > 0 ? Math.floor(parsedFps) : 60,
+      bitrateMbps: Number.isFinite(parsedBitrate) && parsedBitrate > 0 ? Math.floor(parsedBitrate) : 20,
+      codec:
+        typeof streamProfile.codec === "string" && streamProfile.codec.trim() ? streamProfile.codec.trim().toLowerCase() : "hevc"
+    },
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : null
+  };
+};
+
 const defaultDb = {
   users: [
     {
@@ -53,7 +87,8 @@ const defaultDb = {
         supportedGames: [],
         gpuTier: "ultimate",
         maxFps: 144
-      }
+      },
+      streamHealth: normalizeHostStreamHealth()
     }
   ],
   schedulerPolicy: {
@@ -285,6 +320,7 @@ const normalizeDb = (data) => {
         gpuTier: entry.capabilities?.gpuTier || "basic",
         maxFps: Number.isFinite(Number(entry.capabilities?.maxFps)) ? Math.floor(Number(entry.capabilities.maxFps)) : 60
       },
+      streamHealth: normalizeHostStreamHealth(entry.streamHealth),
       lastHeartbeatAt: entry.lastHeartbeatAt || null
     }));
   }
