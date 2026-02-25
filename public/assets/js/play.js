@@ -1,4 +1,4 @@
-import { appState, initAuthShell, toTitle } from "./app.js";
+import { apiRequest, appState, initAuthShell, toTitle } from "./app.js";
 import { TRANSPORT_MODES, resolveTransportMode } from "./settings.js";
 
 const getGameFromQuery = () => {
@@ -349,6 +349,61 @@ const getTransportHelpText = ({ mode, reason }) => {
   return "Compatibility mode active (WebRTC unavailable on this network/browser).";
 };
 
+const setPanelText = (selector, value) => {
+  const element = document.querySelector(selector);
+  if (!element || value === undefined || value === null) {
+    return;
+  }
+  element.textContent = String(value);
+};
+
+const hydrateRigPanel = async (gameSlug) => {
+  setPanelText("[data-rig-max]", 40);
+  setPanelText("[data-rig-ads]", 15);
+
+  if (!appState.authToken) {
+    return;
+  }
+
+  try {
+    const [sessions, rigSnapshot] = await Promise.all([
+      apiRequest("/api/sessions/me", { auth: true }),
+      apiRequest("/api/launch/service/rigs", { auth: true })
+    ]);
+
+    const adCount = Number(rigSnapshot?.adPolicy?.adsPerSession);
+    if (Number.isFinite(adCount) && adCount >= 0) {
+      setPanelText("[data-rig-ads]", Math.floor(adCount));
+    }
+
+    const activeSession = (sessions || []).find(
+      (entry) => (entry.status === "active" || entry.status === "disconnected") && entry.gameSlug === gameSlug
+    );
+
+    let rig = null;
+    if (activeSession?.hostId) {
+      rig = (rigSnapshot?.rigs || []).find((entry) => entry.rigId === activeSession.hostId) || null;
+    }
+
+    if (!rig) {
+      rig = (rigSnapshot?.rigs || [])[0] || null;
+    }
+
+    if (!rig) {
+      return;
+    }
+
+    setPanelText("[data-rig-name]", rig.name || rig.rigId || "NexForce RTX Pod");
+    setPanelText("[data-rig-region]", `Region: ${rig.region || "local"}`);
+    setPanelText("[data-rig-active]", Number.isFinite(Number(rig.activeUsers)) ? Number(rig.activeUsers) : 0);
+    setPanelText("[data-rig-max]", Number.isFinite(Number(rig.maxUsers)) ? Number(rig.maxUsers) : 40);
+    setPanelText("[data-rig-available]", Number.isFinite(Number(rig.availableUsers)) ? Number(rig.availableUsers) : 0);
+    setPanelText("[data-rig-load]", `${Number.isFinite(Number(rig.saturationPct)) ? Number(rig.saturationPct) : 0}%`);
+    setPanelText("[data-rig-state]", rig.acceptingUsers ? "Ready" : "At Capacity");
+  } catch {
+  }
+};
+
 const init = async () => {
   initAuthShell();
 
@@ -383,6 +438,8 @@ const init = async () => {
   if (transportBadgeEl) {
     transportBadgeEl.textContent = getTransportBadgeText(transport);
   }
+
+  await hydrateRigPanel(gameSlug);
 
   createRuntime(profile);
 
