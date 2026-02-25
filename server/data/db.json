@@ -4,7 +4,11 @@
       "id": "demo-user-001",
       "name": "NexForce Player",
       "email": "player@nexforce.gg",
-      "tier": "performance"
+      "tier": "performance",
+      "passwordSalt": null,
+      "passwordHash": null,
+      "createdAt": null,
+      "updatedAt": null
     }
   ],
   "authSessions": [],
@@ -20,10 +24,21 @@
       "id": "host-1",
       "name": "NexForce Host 1",
       "region": "local",
-      "capacity": 1,
+      "capacity": 40,
       "activeSessions": 0,
       "status": "online",
-      "lastHeartbeatAt": null
+      "lastHeartbeatAt": null,
+      "mode": "active",
+      "slotPolicy": {
+        "freeReservedMin": 0,
+        "performanceReservedMin": 0,
+        "ultimateReservedMin": 0
+      },
+      "capabilities": {
+        "supportedGames": [],
+        "gpuTier": "basic",
+        "maxFps": 60
+      }
     }
   ],
   "sessionQueue": [],
@@ -114,5 +129,46 @@
       "image": null,
       "featured": true
     }
-  ]
+  ],
+  "linkedAccountsByUserId": {},
+  "launchTickets": [],
+  "schedulerPolicy": {
+    "maxActiveSessionsPerUser": 1,
+    "maxQueuedSessionsPerUser": 1,
+    "agingBoostMinutes": 10,
+    "agingBoostPerStep": 1,
+    "eventRetentionLimit": 500
+  },
+  "schedulerMetrics": {
+    "since": null,
+    "queuedTotal": 0,
+    "assignmentsTotal": 0,
+    "timedOutTotal": 0,
+    "rejections": {
+      "concurrency_limit": 0,
+      "plan_restricted": 0,
+      "no_capacity": 0
+    },
+    "waitByPlanSec": {
+      "free": {
+        "count": 0,
+        "total": 0,
+        "max": 0
+      },
+      "performance": {
+        "count": 0,
+        "total": 0,
+        "max": 0
+      },
+      "ultimate": {
+        "count": 0,
+        "total": 0,
+        "max": 0
+      }
+    },
+    "lastQueueAt": null,
+    "lastAssignmentAt": null,
+    "lastTimeoutAt": null
+  },
+  "schedulerEvents": []
 }
