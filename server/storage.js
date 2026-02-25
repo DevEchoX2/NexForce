@@ -228,6 +228,19 @@ const normalizeDb = (data) => {
     normalized.sessions = [];
   } else if (normalized.sessions.some((entry) => entry && typeof entry.token === "string")) {
     normalized.sessions = normalized.sessions.filter((entry) => entry && typeof entry.token !== "string");
+  } else {
+    normalized.sessions = normalized.sessions
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => ({
+        ...entry,
+        clientLatencyMsByRegion:
+          entry.clientLatencyMsByRegion && typeof entry.clientLatencyMsByRegion === "object" && !Array.isArray(entry.clientLatencyMsByRegion)
+            ? entry.clientLatencyMsByRegion
+            : null,
+        disconnectedAt: typeof entry.disconnectedAt === "string" ? entry.disconnectedAt : null,
+        reconnectExpiresAt: typeof entry.reconnectExpiresAt === "string" ? entry.reconnectExpiresAt : null,
+        reconnectToken: typeof entry.reconnectToken === "string" ? entry.reconnectToken : null
+      }));
   }
 
   if (!Array.isArray(normalized.sessionQueue)) {

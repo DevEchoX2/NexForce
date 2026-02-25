@@ -26,6 +26,7 @@ const app = express();
 const publicDir = path.join(__dirname, "..", "public");
 const PORT = process.env.PORT || 5500;
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
+const SESSION_RECONNECT_GRACE_MS = Number(process.env.SESSION_RECONNECT_GRACE_MS || 5 * 60 * 1000);
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
@@ -655,6 +656,23 @@ const getPlanSessionDurationMs = (plan) => {
   return planSessionDurationMs[plan] ?? planSessionDurationMs.free;
 };
 
+const normalizeLatencyMap = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized = {};
+  Object.entries(value).forEach(([region, latency]) => {
+    const parsed = Number(latency);
+    if (!region || !Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+    normalized[String(region).trim()] = Math.floor(parsed);
+  });
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+};
+
 const getSessionTimeRemainingMs = (session, nowMs = Date.now()) => {
   if (!session.startedAt) {
     return getPlanSessionDurationMs(session.plan);
@@ -671,13 +689,17 @@ const getSessionTimeRemainingMs = (session, nowMs = Date.now()) => {
 
 const withSessionRuntime = (session, nowMs = Date.now()) => {
   const maxDurationMs = getPlanSessionDurationMs(session.plan);
-  const isActive = session.status === "active";
+  const isActive = session.status === "active" || session.status === "disconnected";
   const remainingMs = isActive ? getSessionTimeRemainingMs(session, nowMs) : null;
+  const reconnectRemainingMs = session.reconnectExpiresAt
+    ? Math.max(0, new Date(session.reconnectExpiresAt).getTime() - nowMs)
+    : null;
 
   return {
     ...session,
     maxDurationSec: Math.floor(maxDurationMs / 1000),
-    remainingSec: remainingMs === null ? null : Math.floor(remainingMs / 1000)
+    remainingSec: remainingMs === null ? null : Math.floor(remainingMs / 1000),
+    reconnectRemainingSec: reconnectRemainingMs === null ? null : Math.floor(reconnectRemainingMs / 1000)
   };
 };
 
@@ -756,7 +778,7 @@ const reconcileHostsAndSessions = (db) => {
   });
 
   db.sessions.forEach((session) => {
-    if (session.status !== "active") {
+    if (session.status !== "active" && session.status !== "disconnected") {
       return;
     }
 
@@ -783,7 +805,7 @@ const enforceSessionDurationLimits = (db) => {
   let timedOutCount = 0;
 
   db.sessions.forEach((session) => {
-    if (session.status !== "active") {
+    if (session.status !== "active" && session.status !== "disconnected") {
       return;
     }
 
@@ -801,6 +823,30 @@ const enforceSessionDurationLimits = (db) => {
     timedOutCount += 1;
   });
 
+  db.sessions.forEach((session) => {
+    if (session.status !== "disconnected") {
+      return;
+    }
+
+    const reconnectExpiresAtMs = session.reconnectExpiresAt ? new Date(session.reconnectExpiresAt).getTime() : Number.NaN;
+    if (!Number.isFinite(reconnectExpiresAtMs) || reconnectExpiresAtMs > nowMs) {
+      return;
+    }
+
+    session.status = "ended";
+    session.endedAt = nowIso;
+    session.endReason = "reconnect_timeout";
+    session.hostId = null;
+    session.reconnectToken = null;
+    session.reconnectExpiresAt = null;
+    session.disconnectedAt = null;
+    appendSchedulerEvent(db, "session_reconnect_timeout", {
+      sessionId: session.id,
+      userId: session.userId
+    });
+    changed = true;
+  });
+
   return { changed, timedOutCount };
 };
 
@@ -808,6 +854,22 @@ const getAvailableHostForSession = (db, session) => {
   return db.gameHosts
     .filter((host) => isHostCompatibleForSession(db, host, session))
     .sort((left, right) => {
+      const leftLatency = Number(session.clientLatencyMsByRegion?.[left.region]);
+      const rightLatency = Number(session.clientLatencyMsByRegion?.[right.region]);
+      const leftHasLatency = Number.isFinite(leftLatency);
+      const rightHasLatency = Number.isFinite(rightLatency);
+      if (leftHasLatency || rightHasLatency) {
+        if (leftHasLatency && !rightHasLatency) {
+          return -1;
+        }
+        if (!leftHasLatency && rightHasLatency) {
+          return 1;
+        }
+        if (leftLatency !== rightLatency) {
+          return leftLatency - rightLatency;
+        }
+      }
+
       const leftRegionScore = session.preferredRegion && left.region === session.preferredRegion ? 0 : 1;
       const rightRegionScore = session.preferredRegion && right.region === session.preferredRegion ? 0 : 1;
       if (leftRegionScore !== rightRegionScore) {
@@ -1562,7 +1624,7 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
 });
 
 app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {
-  const { gameSlug, preferredRegion = null } = req.body || {};
+  const { gameSlug, preferredRegion = null, clientLatencyMsByRegion = null } = req.body || {};
   if (!gameSlug) {
     return res.status(400).json({ error: "gameSlug is required" });
   }
@@ -1624,7 +1686,8 @@ app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, ses
   const queuedSessionShape = {
     plan: settings.selectedPlan,
     gameSlug: game.slug,
-    preferredRegion: typeof preferredRegion === "string" && preferredRegion.trim() ? preferredRegion.trim() : null
+    preferredRegion: typeof preferredRegion === "string" && preferredRegion.trim() ? preferredRegion.trim() : null,
+    clientLatencyMsByRegion: normalizeLatencyMap(clientLatencyMsByRegion)
   };
   const host = getAvailableHostForSession(db, queuedSessionShape);
   const id = `sess_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -1635,12 +1698,16 @@ app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, ses
     gameTitle: game.title,
     plan: settings.selectedPlan,
     preferredRegion: queuedSessionShape.preferredRegion,
+    clientLatencyMsByRegion: queuedSessionShape.clientLatencyMsByRegion,
     status: host ? "active" : "queued",
     hostId: host ? host.id : null,
     assignedBy: host ? getAssignmentReason(host, queuedSessionShape) : null,
     requestedAt: new Date().toISOString(),
     startedAt: host ? new Date().toISOString() : null,
     endedAt: null,
+    disconnectedAt: null,
+    reconnectExpiresAt: null,
+    reconnectToken: null,
     connection: null
   };
 
@@ -1682,7 +1749,7 @@ app.get("/api/sessions/me", authMiddleware, requireSchedulerAvailable, (req, res
   promoteQueue(db);
   writeDb(db);
   const sessions = db.sessions.filter(
-    (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active")
+    (entry) => entry.userId === req.auth.user.id && (entry.status === "queued" || entry.status === "active" || entry.status === "disconnected")
   );
 
   const hydrated = sessions.map((entry) => {
@@ -1695,6 +1762,106 @@ app.get("/api/sessions/me", authMiddleware, requireSchedulerAvailable, (req, res
   });
 
   res.json(hydrated);
+});
+
+app.post("/api/sessions/:sessionId/disconnect", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {
+  const { sessionId } = req.params;
+  const db = readDb();
+  const session = db.sessions.find((entry) => entry.id === sessionId && entry.userId === req.auth.user.id);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status === "ended" || session.status === "queued") {
+    return res.status(409).json({ error: "Session is not active" });
+  }
+
+  if (session.status === "disconnected") {
+    return res.json({ success: true, session: withSessionRuntime(session) });
+  }
+
+  session.status = "disconnected";
+  session.disconnectedAt = new Date().toISOString();
+  session.reconnectExpiresAt = new Date(Date.now() + SESSION_RECONNECT_GRACE_MS).toISOString();
+  session.reconnectToken = crypto.randomBytes(20).toString("hex");
+
+  appendSchedulerEvent(db, "session_disconnected", {
+    sessionId: session.id,
+    userId: session.userId,
+    reconnectExpiresAt: session.reconnectExpiresAt
+  });
+
+  writeDb(db);
+  res.json({
+    success: true,
+    session: withSessionRuntime(session),
+    reconnectToken: session.reconnectToken,
+    reconnectExpiresAt: session.reconnectExpiresAt
+  });
+});
+
+app.post("/api/sessions/:sessionId/reconnect", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {
+  const { sessionId } = req.params;
+  const { reconnectToken } = req.body || {};
+  const db = readDb();
+  const session = db.sessions.find((entry) => entry.id === sessionId && entry.userId === req.auth.user.id);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status === "active") {
+    return res.json({ success: true, session: withSessionRuntime(session) });
+  }
+
+  if (session.status !== "disconnected") {
+    return res.status(409).json({ error: "Session is not reconnectable" });
+  }
+
+  if (!reconnectToken || reconnectToken !== session.reconnectToken) {
+    return res.status(401).json({ error: "Invalid reconnect token" });
+  }
+
+  const reconnectExpiresAtMs = session.reconnectExpiresAt ? new Date(session.reconnectExpiresAt).getTime() : Number.NaN;
+  if (!Number.isFinite(reconnectExpiresAtMs) || reconnectExpiresAtMs <= Date.now()) {
+    session.status = "ended";
+    session.endedAt = new Date().toISOString();
+    session.endReason = "reconnect_timeout";
+    session.hostId = null;
+    session.reconnectToken = null;
+    session.reconnectExpiresAt = null;
+    session.disconnectedAt = null;
+    writeDb(db);
+    return res.status(410).json({ error: "Reconnect window expired" });
+  }
+
+  const host = db.gameHosts.find((entry) => entry.id === session.hostId);
+  if (!host || host.status !== "online") {
+    session.status = "ended";
+    session.endedAt = new Date().toISOString();
+    session.endReason = "host_offline";
+    session.hostId = null;
+    session.reconnectToken = null;
+    session.reconnectExpiresAt = null;
+    session.disconnectedAt = null;
+    writeDb(db);
+    return res.status(409).json({ error: "Host unavailable" });
+  }
+
+  session.status = "active";
+  session.disconnectedAt = null;
+  session.reconnectExpiresAt = null;
+  session.reconnectToken = null;
+
+  appendSchedulerEvent(db, "session_reconnected", {
+    sessionId: session.id,
+    userId: session.userId,
+    hostId: session.hostId
+  });
+
+  writeDb(db);
+  res.json({ success: true, session: withSessionRuntime(session) });
 });
 
 app.post("/api/sessions/:sessionId/end", authMiddleware, requireSchedulerAvailable, (req, res) => {
@@ -1710,7 +1877,7 @@ app.post("/api/sessions/:sessionId/end", authMiddleware, requireSchedulerAvailab
     return res.json({ session });
   }
 
-  if (session.status === "active" && session.hostId) {
+  if ((session.status === "active" || session.status === "disconnected") && session.hostId) {
     const host = db.gameHosts.find((entry) => entry.id === session.hostId);
     if (host) {
       host.activeSessions = Math.max(0, host.activeSessions - 1);
@@ -1723,6 +1890,9 @@ app.post("/api/sessions/:sessionId/end", authMiddleware, requireSchedulerAvailab
 
   session.status = "ended";
   session.endedAt = new Date().toISOString();
+  session.disconnectedAt = null;
+  session.reconnectExpiresAt = null;
+  session.reconnectToken = null;
   appendSchedulerEvent(db, "session_ended", {
     sessionId: session.id,
     userId: session.userId,
@@ -1791,6 +1961,42 @@ app.get("/api/control/scheduler", authMiddleware, (_req, res) => {
     queueDepth: db.sessionQueue.length,
     activeSessions: db.sessions.filter((entry) => entry.status === "active").length,
     eventsStored: Array.isArray(db.schedulerEvents) ? db.schedulerEvents.length : 0
+  });
+});
+
+app.get("/api/control/autoscale", authMiddleware, (_req, res) => {
+  const db = readDb();
+  const onlineActiveHosts = db.gameHosts.filter(
+    (entry) => entry.status === "online" && normalizeHostMode(entry.mode) === hostMode.active
+  );
+  const queueDepth = db.sessionQueue.length;
+  const activeOrDisconnected = db.sessions.filter(
+    (entry) => entry.status === "active" || entry.status === "disconnected"
+  ).length;
+  const totalCapacity = onlineActiveHosts.reduce((sum, entry) => sum + Math.max(0, Number(entry.capacity) || 0), 0);
+  const desiredSpareCapacity = Math.max(1, Math.ceil(totalCapacity * 0.15));
+  const freeSlots = Math.max(0, totalCapacity - activeOrDisconnected);
+  const shortfall = Math.max(0, queueDepth - freeSlots + desiredSpareCapacity);
+  const defaultHostCapacity = Math.max(
+    1,
+    onlineActiveHosts.length > 0
+      ? Math.round(totalCapacity / onlineActiveHosts.length)
+      : 1
+  );
+
+  const recommendedAdditionalHosts = Math.ceil(shortfall / defaultHostCapacity);
+
+  res.json({
+    queueDepth,
+    activeOrDisconnectedSessions: activeOrDisconnected,
+    onlineActiveHosts: onlineActiveHosts.length,
+    totalCapacity,
+    freeSlots,
+    desiredSpareCapacity,
+    shortfall,
+    recommendedAdditionalHosts,
+    defaultHostCapacity,
+    recommendation: recommendedAdditionalHosts > 0 ? "scale_up" : "stable"
   });
 });
 

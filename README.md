@@ -100,7 +100,7 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - Optional Postgres-backed auth/session/ticket persistence (`DATABASE_URL`)
 - Plan checks for game access
 - Session request queue and host allocation
-- Session state endpoints (queued, active, ended)
+- Session state endpoints (queued, active, disconnected, ended)
 
 ### Control-plane endpoints
 
@@ -112,12 +112,16 @@ Step 1 is now available in `server/` as a local/VPS-ready control plane (no Rail
 - `GET /api/control/summary`
 - `POST /api/sessions/request`
 - `GET /api/sessions/me`
+- `POST /api/sessions/:sessionId/disconnect`
+- `POST /api/sessions/:sessionId/reconnect`
 - `POST /api/sessions/:sessionId/end`
 - `POST /api/launch/ticket/verify`
 - `GET /api/control/monitoring`
 - `GET /api/metrics`
+- `GET /api/control/autoscale`
 
 Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
+Session reconnect grace is configurable with `SESSION_RECONNECT_GRACE_MS` (default: 5 minutes).
 
 ### Security + reliability hardening
 
@@ -129,6 +133,13 @@ Auth session TTL is configurable with `AUTH_SESSION_TTL_MS` (default: 7 days).
 - Monitoring endpoints:
 	- `GET /api/control/monitoring` (JSON summary)
 	- `GET /api/metrics` (Prometheus-style text)
+	- `GET /api/control/autoscale` (queue/capacity scale-up recommendation)
+
+### Session reliability + smarter placement
+
+- Active sessions can temporarily transition to `disconnected` and recover through reconnect token flow.
+- Disconnected sessions auto-expire to `ended` when reconnect window elapses (`reconnect_timeout`).
+- `POST /api/sessions/request` now accepts optional `clientLatencyMsByRegion` map for latency-aware host selection.
 
 ### Postgres mode (optional)
 
