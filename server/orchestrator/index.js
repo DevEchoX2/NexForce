@@ -86,6 +86,10 @@ setInterval(() => {
   });
 }, TICK_MS);
 
+tick().catch((error) => {
+  console.error("[orchestrator] initial tick failed:", error.message);
+});
+
 app.listen(PORT, () => {
   console.log(`NexForce Orchestrator running on http://localhost:${PORT}`);
   console.log(`Control API target: ${CONTROL_API_URL}`);

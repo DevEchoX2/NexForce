@@ -88,6 +88,13 @@ const matchmakerState = {
   lastError: null
 };
 
+const orchestratorHealthState = {
+  lastTickAt: null,
+  lastResult: null
+};
+
+const SCHEDULER_GRACE_MS = Number(process.env.NEXFORCE_SCHEDULER_GRACE_MS || 15000);
+
 const asNonNegativeInt = (value, fallback = 0) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -281,6 +288,31 @@ const orchestratorAuthMiddleware = (req, res, next) => {
   if (!key || key !== ORCHESTRATOR_KEY) {
     return res.status(401).json({ error: "Invalid orchestrator key" });
   }
+  next();
+};
+
+const requireSchedulerAvailable = (req, res, next) => {
+  if (ORCHESTRATOR_EMBEDDED) {
+    return next();
+  }
+
+  const lastTickAtMs = orchestratorHealthState.lastTickAt
+    ? new Date(orchestratorHealthState.lastTickAt).getTime()
+    : 0;
+  const isFresh = Number.isFinite(lastTickAtMs) && Date.now() - lastTickAtMs <= SCHEDULER_GRACE_MS;
+
+  if (!isFresh) {
+    return res.status(503).json({
+      error: "Scheduler unavailable",
+      code: "scheduler_unavailable",
+      orchestrator: {
+        embedded: ORCHESTRATOR_EMBEDDED,
+        lastTickAt: orchestratorHealthState.lastTickAt,
+        graceMs: SCHEDULER_GRACE_MS
+      }
+    });
+  }
+
   next();
 };
 
@@ -739,7 +771,7 @@ app.get("/api/plans", (_req, res) => {
   res.json(db.plans);
 });
 
-app.get("/api/hosts", authMiddleware, (_req, res) => {
+app.get("/api/hosts", authMiddleware, requireSchedulerAvailable, (_req, res) => {
   const db = readDb();
   promoteQueue(db);
   writeDb(db);
@@ -908,7 +940,7 @@ app.put("/api/hosts/:hostId/mode", hostAuthMiddleware, (req, res) => {
   res.json({ success: true, host });
 });
 
-app.get("/api/control/summary", authMiddleware, (req, res) => {
+app.get("/api/control/summary", authMiddleware, requireSchedulerAvailable, (req, res) => {
   const db = readDb();
   promoteQueue(db);
   writeDb(db);
@@ -1138,7 +1170,7 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
   res.json(db.settingsByUserId[req.auth.user.id]);
 });
 
-app.post("/api/sessions/request", authMiddleware, (req, res) => {
+app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, (req, res) => {
   const { gameSlug, preferredRegion = null } = req.body || {};
   if (!gameSlug) {
     return res.status(400).json({ error: "gameSlug is required" });
@@ -1254,7 +1286,7 @@ app.post("/api/sessions/request", authMiddleware, (req, res) => {
   res.json({ session: withSessionRuntime(session), queuePosition });
 });
 
-app.get("/api/sessions/me", authMiddleware, (req, res) => {
+app.get("/api/sessions/me", authMiddleware, requireSchedulerAvailable, (req, res) => {
   const db = readDb();
   promoteQueue(db);
   writeDb(db);
@@ -1274,7 +1306,7 @@ app.get("/api/sessions/me", authMiddleware, (req, res) => {
   res.json(hydrated);
 });
 
-app.post("/api/sessions/:sessionId/end", authMiddleware, (req, res) => {
+app.post("/api/sessions/:sessionId/end", authMiddleware, requireSchedulerAvailable, (req, res) => {
   const { sessionId } = req.params;
   const db = readDb();
   const session = db.sessions.find((entry) => entry.id === sessionId && entry.userId === req.auth.user.id);
@@ -1329,7 +1361,15 @@ app.get("/api/launch/estimate", (req, res) => {
 });
 
 app.get("/api/control/worker", authMiddleware, (_req, res) => {
-  res.json(getWorkerSnapshot());
+  res.json({
+    ...getWorkerSnapshot(),
+    orchestrator: {
+      embedded: ORCHESTRATOR_EMBEDDED,
+      lastTickAt: orchestratorHealthState.lastTickAt,
+      lastResult: orchestratorHealthState.lastResult,
+      graceMs: SCHEDULER_GRACE_MS
+    }
+  });
 });
 
 app.post("/api/control/worker/tick", authMiddleware, (_req, res) => {
@@ -1344,6 +1384,8 @@ app.get("/internal/orchestrator/health", orchestratorAuthMiddleware, (_req, res)
 app.post("/internal/orchestrator/tick", orchestratorAuthMiddleware, (req, res) => {
   const forceWrite = Boolean(req.body?.forceWrite);
   const result = runMatchmakerTick({ forceWrite });
+  orchestratorHealthState.lastTickAt = new Date().toISOString();
+  orchestratorHealthState.lastResult = result;
   res.json({ worker: getWorkerSnapshot(), result });
 });
 

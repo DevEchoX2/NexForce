@@ -179,6 +179,11 @@ Related env vars:
 - `ORCHESTRATOR_PORT` (default: `5600`)
 - `ORCHESTRATOR_TICK_MS` (default: `5000`)
 
+Fail-fast behavior in split mode:
+
+- Scheduling-dependent endpoints return `503` with `code: scheduler_unavailable` if orchestrator ticks are stale.
+- Freshness window is controlled by `NEXFORCE_SCHEDULER_GRACE_MS` (default: `15000`).
+
 ## Step 4 (host agent daemon)
 
 Step 4 adds a runnable host daemon at `server/host-agent.js`:
