@@ -47,6 +47,7 @@ const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const DAY_PASS_PRICE_USD = Number(process.env.NEXFORCE_DAY_PASS_PRICE_USD || 7);
 const DAY_PASS_DURATION_HOURS = Number(process.env.NEXFORCE_DAY_PASS_DURATION_HOURS || 24);
 const PUBLIC_BASE_URL = process.env.NEXFORCE_PUBLIC_BASE_URL || "http://localhost:5500";
+const STRIPE_BILLING_PORTAL_RETURN_URL = process.env.STRIPE_BILLING_PORTAL_RETURN_URL || `${PUBLIC_BASE_URL}/plans.html?portal=return`;
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 const paidPlanIds = new Set(["performance", "ultimate"]);
 const billingCycles = new Set(["monthly", "yearly"]);
@@ -87,7 +88,7 @@ const integrationProviders = {
   epic: {
     id: "epic",
     name: "Epic Games",
-    games: ["fortnite"],
+    games: ["fortnite", "fall-guys", "rocket-league"],
     launchUrlTemplate: "https://launcher.epicgames.com"
   },
   roblox: {
@@ -100,6 +101,8 @@ const integrationProviders = {
 
 const gameProviderBySlug = {
   fortnite: "epic",
+  "fall-guys": "epic",
+  "rocket-league": "epic",
   roblox: "roblox"
 };
 const defaultSchedulerPolicy = {
