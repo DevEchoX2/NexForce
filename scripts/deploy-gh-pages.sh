@@ -46,8 +46,24 @@ STAMP="$(date +%s)"
 PRIMARY_URL="${VERIFY_BASE_URL}${VERIFY_PATH}&v=${STAMP}"
 PRIMARY_BODY="$(mktemp /tmp/nexforce-live-primary.XXXXXX.html)"
 
-curl -sSL "$PRIMARY_URL" -o "$PRIMARY_BODY"
-if grep -q "data-enter-fullscreen" "$PRIMARY_BODY"; then
+verify_marker_with_retry() {
+  local url="$1"
+  local output_file="$2"
+  local max_attempts="${3:-12}"
+  local sleep_seconds="${4:-5}"
+
+  for attempt in $(seq 1 "$max_attempts"); do
+    curl -sSL "$url" -o "$output_file"
+    if grep -q "data-enter-fullscreen" "$output_file"; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+
+  return 1
+}
+
+if verify_marker_with_retry "$PRIMARY_URL" "$PRIMARY_BODY"; then
   echo "verified: $PRIMARY_URL"
 else
   echo "error: deploy verification failed for $PRIMARY_URL" >&2
@@ -57,8 +73,7 @@ fi
 if [[ -n "$CUSTOM_VERIFY_BASE_URL" ]]; then
   CUSTOM_URL="${CUSTOM_VERIFY_BASE_URL}${VERIFY_PATH}&v=${STAMP}"
   CUSTOM_BODY="$(mktemp /tmp/nexforce-live-custom.XXXXXX.html)"
-  curl -sSL "$CUSTOM_URL" -o "$CUSTOM_BODY"
-  if grep -q "data-enter-fullscreen" "$CUSTOM_BODY"; then
+  if verify_marker_with_retry "$CUSTOM_URL" "$CUSTOM_BODY"; then
     echo "verified: $CUSTOM_URL"
   else
     echo "warning: custom domain has not propagated yet: $CUSTOM_URL"
