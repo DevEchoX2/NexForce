@@ -93,6 +93,21 @@ Open:
 
 `http://localhost:5500`
 
+## Deploy live (always NexForce URL)
+
+Use the deployment command below for every publish:
+
+```bash
+npm run deploy:live
+```
+
+This command always deploys from `public/` to `gh-pages` and verifies the uppercase project URL path:
+
+- `https://devechox2.github.io/NexForce/`
+- `https://devechox2.github.io/NexForce/play.html?game=Fortnite`
+
+Lowercase `/nexforce/` is intentionally not used.
+
 ## Notes
 
 This is currently a frontend MVP. Real cloud streaming infrastructure and production backend services can be added in a later phase.
