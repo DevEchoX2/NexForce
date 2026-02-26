@@ -98,18 +98,14 @@ const updateRigTimeDisplay = () => {
 const initRigTimeUnlock = () => {
   const unlockButton = document.querySelector("[data-rig-unlock]");
   const rigSidebar = document.querySelector("[data-rig-sidebar]");
-  if (!unlockButton) {
+  if (!unlockButton || !rigSidebar) {
     return;
   }
 
   const applySidebarState = () => {
-    if (!rigSidebar) {
-      return;
-    }
-
     rigSidebar.style.transform = rigSidebarOpen
       ? "translateX(0) translateY(-50%)"
-      : "translateX(calc(-100% + 2.85rem)) translateY(-50%)";
+      : "translateX(calc(-100% - 1rem)) translateY(-50%)";
     unlockButton.setAttribute("aria-expanded", rigSidebarOpen ? "true" : "false");
   };
 

@@ -32,24 +32,24 @@
         </div>
       </header>
 
-      <main class="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+      <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+        <button
+          type="button"
+          data-rig-unlock
+          class="fixed left-3 top-1/2 z-[10000] -translate-y-1/2 rounded-full bg-slate-900/95 px-3 py-3 text-lg shadow-2xl transition hover:bg-slate-800"
+          aria-label="Open rig control"
+          title="Open rig control"
+          aria-expanded="false"
+        >
+          🙏
+        </button>
+
         <aside
           data-rig-sidebar
-          class="fixed left-3 top-1/2 z-[9999] w-72 -translate-y-1/2 rounded-[2rem] bg-slate-950/90 p-4 shadow-2xl backdrop-blur-lg"
-          style="transform: translateX(calc(-100% + 2.85rem)) translateY(-50%); transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);"
+          class="fixed left-14 top-1/2 z-[9999] w-[min(84vw,19rem)] -translate-y-1/2 rounded-[2rem] bg-slate-950/95 p-4 shadow-2xl backdrop-blur-lg"
+          style="transform: translateX(calc(-100% - 1rem)) translateY(-50%); transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);"
         >
-          <button
-            type="button"
-            data-rig-unlock
-            class="absolute -right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900 px-3 py-3 text-lg shadow-xl transition hover:bg-slate-800"
-            aria-label="Open rig control"
-            title="Open rig control"
-            aria-expanded="false"
-          >
-            🙏
-          </button>
-
-          <div class="mb-3 flex items-center justify-between pr-8">
+          <div class="mb-3 flex items-center justify-between">
             <p class="text-xs font-semibold uppercase tracking-widest text-primary/90">Rig</p>
             <span data-rig-state class="rounded-full bg-primary/15 px-2 py-1 text-[10px] font-semibold uppercase text-primary">Ready</span>
           </div>
@@ -98,9 +98,9 @@
           </div>
         </div>
 
-        <section class="grid gap-4">
+        <section class="mx-auto grid max-w-4xl gap-4">
           <div class="glass-card p-4">
-            <div class="aspect-video rounded-2xl border border-white/10 bg-black/40 p-3">
+            <div class="aspect-[16/10] rounded-2xl border border-white/10 bg-black/40 p-3 sm:aspect-video">
               <div class="relative flex h-full flex-col rounded-xl border border-primary/30 bg-zinc-900/70 p-3">
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span class="rounded-full border border-white/15 bg-white/5 px-3 py-1">Mode: <strong data-runtime-mode class="text-white">Host Stream Bootstrap</strong></span>
