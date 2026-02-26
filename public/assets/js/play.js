@@ -1,10 +1,4 @@
-import {
-  apiRequestWithSchedulerRecovery,
-  appState,
-  initAuthShell,
-  isSchedulerUnavailableError,
-  toTitle
-} from "./app.js";
+import { appState, initAuthShell, toTitle } from "./app.js";
 
 const getGameFromQuery = () => {
   const params = new URLSearchParams(window.location.search);
@@ -17,143 +11,266 @@ const slugFromGameName = (name) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
 
-const setText = (selector, value) => {
-  const element = document.querySelector(selector);
-  if (element) {
-    element.textContent = value;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const runtimeProfiles = {
+  fortnite: {
+    label: "Target Rush",
+    hint: "Click targets fast."
+  },
+  roblox: {
+    label: "Orb Collector",
+    hint: "Use WASD/Arrows to collect orbs."
+  },
+  default: {
+    label: "Arcade Session",
+    hint: "Use WASD/Arrows to collect orbs."
   }
 };
 
-const pickBestSession = (sessions, gameSlug) => {
-  if (!Array.isArray(sessions) || sessions.length === 0) {
-    return null;
+const createRuntime = (gameSlug) => {
+  const surface = document.querySelector("[data-play-surface]");
+  const overlay = document.querySelector("[data-play-overlay]");
+  const messageEl = document.querySelector("[data-bootstrap-message]");
+  const fullscreenButton = document.querySelector("[data-enter-fullscreen]");
+
+  if (!surface) {
+    return;
   }
 
-  const byGame = sessions.filter((entry) => slugFromGameName(entry.gameSlug || entry.gameTitle || "") === gameSlug);
-  const candidates = byGame.length ? byGame : sessions;
+  const canvas = document.createElement("canvas");
+  canvas.className = "h-full w-full";
+  canvas.width = 960;
+  canvas.height = 960;
+  surface.prepend(canvas);
 
-  const active = candidates.find((entry) => entry.status === "active");
-  if (active) return active;
+  const context = canvas.getContext("2d");
+  const profile = runtimeProfiles[gameSlug] || runtimeProfiles.default;
+  const state = {
+    running: false,
+    mode: gameSlug === "fortnite" ? "target" : "collector",
+    score: 0,
+    player: { x: 480, y: 480, radius: 18, speed: 360 },
+    orb: { x: 240, y: 220, radius: 12 },
+    target: { x: 620, y: 320, radius: 26, vx: 170, vy: 150 },
+    keys: new Set(),
+    rafId: 0,
+    previousTime: 0
+  };
 
-  const disconnected = candidates.find((entry) => entry.status === "disconnected");
-  if (disconnected) return disconnected;
+  const setMessage = (message) => {
+    if (messageEl) {
+      messageEl.textContent = message;
+    }
+  };
 
-  return candidates.find((entry) => entry.status === "queued") || candidates[0] || null;
+  const setStatus = (status) => {
+    const statusEl = document.querySelector("[data-session-status]");
+    if (statusEl) {
+      statusEl.textContent = status;
+    }
+  };
+
+  const randomOrb = () => {
+    state.orb.x = Math.floor(Math.random() * 820) + 70;
+    state.orb.y = Math.floor(Math.random() * 820) + 70;
+  };
+
+  const drawCollector = () => {
+    context.fillStyle = "#05070d";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    context.fillStyle = "#22d3ee";
+    context.beginPath();
+    context.arc(state.orb.x, state.orb.y, state.orb.radius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = "#39ff14";
+    context.beginPath();
+    context.arc(state.player.x, state.player.y, state.player.radius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = "rgba(255,255,255,0.85)";
+    context.font = "600 20px Inter";
+    context.fillText(`${profile.label} • Score ${state.score}`, 24, 34);
+    context.fillStyle = "rgba(180,190,210,0.85)";
+    context.font = "500 15px Inter";
+    context.fillText(profile.hint, 24, 58);
+  };
+
+  const drawTarget = () => {
+    context.fillStyle = "#070914";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    context.strokeStyle = "#39ff14";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(canvas.width / 2 - 16, canvas.height / 2);
+    context.lineTo(canvas.width / 2 + 16, canvas.height / 2);
+    context.moveTo(canvas.width / 2, canvas.height / 2 - 16);
+    context.lineTo(canvas.width / 2, canvas.height / 2 + 16);
+    context.stroke();
+
+    context.fillStyle = "#22d3ee";
+    context.beginPath();
+    context.arc(state.target.x, state.target.y, state.target.radius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = "rgba(255,255,255,0.85)";
+    context.font = "600 20px Inter";
+    context.fillText(`${profile.label} • Score ${state.score}`, 24, 34);
+    context.fillStyle = "rgba(180,190,210,0.85)";
+    context.font = "500 15px Inter";
+    context.fillText(profile.hint, 24, 58);
+  };
+
+  const tickCollector = (delta) => {
+    const speed = state.player.speed * delta;
+    if (state.keys.has("arrowup") || state.keys.has("w")) state.player.y -= speed;
+    if (state.keys.has("arrowdown") || state.keys.has("s")) state.player.y += speed;
+    if (state.keys.has("arrowleft") || state.keys.has("a")) state.player.x -= speed;
+    if (state.keys.has("arrowright") || state.keys.has("d")) state.player.x += speed;
+
+    state.player.x = clamp(state.player.x, state.player.radius, canvas.width - state.player.radius);
+    state.player.y = clamp(state.player.y, state.player.radius, canvas.height - state.player.radius);
+
+    const distance = Math.hypot(state.player.x - state.orb.x, state.player.y - state.orb.y);
+    if (distance <= state.player.radius + state.orb.radius) {
+      state.score += 1;
+      randomOrb();
+    }
+  };
+
+  const tickTarget = (delta) => {
+    state.target.x += state.target.vx * delta;
+    state.target.y += state.target.vy * delta;
+
+    if (state.target.x <= state.target.radius || state.target.x >= canvas.width - state.target.radius) {
+      state.target.vx *= -1;
+      state.target.x = clamp(state.target.x, state.target.radius, canvas.width - state.target.radius);
+    }
+
+    if (state.target.y <= state.target.radius || state.target.y >= canvas.height - state.target.radius) {
+      state.target.vy *= -1;
+      state.target.y = clamp(state.target.y, state.target.radius, canvas.height - state.target.radius);
+    }
+  };
+
+  const loop = (time) => {
+    if (!state.previousTime) {
+      state.previousTime = time;
+    }
+    const delta = Math.min(0.05, (time - state.previousTime) / 1000);
+    state.previousTime = time;
+
+    if (state.running) {
+      if (state.mode === "collector") {
+        tickCollector(delta);
+      } else {
+        tickTarget(delta);
+      }
+    }
+
+    if (state.mode === "collector") {
+      drawCollector();
+    } else {
+      drawTarget();
+    }
+
+    state.rafId = requestAnimationFrame(loop);
+  };
+
+  const start = async () => {
+    if (!document.fullscreenElement && surface.requestFullscreen) {
+      try {
+        await surface.requestFullscreen();
+      } catch {
+        setMessage("Allow fullscreen to start playing.");
+        return;
+      }
+    }
+
+    state.running = true;
+    setStatus("Playing");
+    if (overlay) {
+      overlay.classList.add("hidden");
+    }
+    if (fullscreenButton) {
+      fullscreenButton.textContent = "Playing";
+    }
+  };
+
+  fullscreenButton?.addEventListener("click", () => {
+    start();
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    const inFullscreen = document.fullscreenElement === surface;
+    if (!inFullscreen && state.running) {
+      state.running = false;
+      setStatus("Paused");
+      if (overlay) {
+        overlay.classList.remove("hidden");
+      }
+      setMessage("Paused. Enter fullscreen to resume playing.");
+      if (fullscreenButton) {
+        fullscreenButton.textContent = "Enter Fullscreen";
+      }
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    state.keys.add(event.key.toLowerCase());
+  });
+
+  window.addEventListener("keyup", (event) => {
+    state.keys.delete(event.key.toLowerCase());
+  });
+
+  if (state.mode === "target") {
+    canvas.addEventListener("click", (event) => {
+      if (!state.running) {
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (event.clientX - rect.left) * scaleX;
+      const y = (event.clientY - rect.top) * scaleY;
+      const distance = Math.hypot(x - state.target.x, y - state.target.y);
+
+      if (distance <= state.target.radius) {
+        state.score += 1;
+        state.target.x = Math.floor(Math.random() * 820) + 70;
+        state.target.y = Math.floor(Math.random() * 820) + 70;
+      }
+    });
+  }
+
+  randomOrb();
+  setStatus("Ready");
+  setMessage("Enter fullscreen and press the button to play.");
+  state.rafId = requestAnimationFrame(loop);
 };
 
 const init = () => {
   initAuthShell();
 
   const game = getGameFromQuery();
-  const gameSlug = slugFromGameName(game);
   appState.activeGame = game;
   appState.recentGame = game;
 
   document.querySelectorAll("[data-game-name]").forEach((element) => {
     element.textContent = game;
   });
-  setText("[data-plan-name]", toTitle(appState.selectedPlan));
 
-  const playSurface = document.querySelector("[data-play-surface]");
-  const fullscreenButton = document.querySelector("[data-enter-fullscreen]");
+  const planEl = document.querySelector("[data-plan-name]");
+  if (planEl) {
+    planEl.textContent = toTitle(appState.selectedPlan);
+  }
 
-  const isFullscreen = () => document.fullscreenElement === playSurface;
-
-  const requestFullscreen = async () => {
-    if (!playSurface?.requestFullscreen) {
-      setText("[data-bootstrap-message]", "Fullscreen is not supported in this browser.");
-      return;
-    }
-
-    try {
-      await playSurface.requestFullscreen();
-    } catch {
-      setText("[data-bootstrap-message]", "Fullscreen was blocked. Allow fullscreen and try again.");
-    }
-  };
-
-  fullscreenButton?.addEventListener("click", () => {
-    requestFullscreen();
-  });
-
-  document.addEventListener("fullscreenchange", () => {
-    if (isFullscreen()) {
-      setText("[data-bootstrap-message]", "Fullscreen enabled. Waiting for cloud stream handoff...");
-      if (fullscreenButton) {
-        fullscreenButton.textContent = "Fullscreen Active";
-      }
-      return;
-    }
-
-    if (fullscreenButton) {
-      fullscreenButton.textContent = "Enter Fullscreen";
-    }
-  });
-
-  const refreshSessionState = async () => {
-    if (!appState.authToken || !appState.authUser) {
-      window.location.href = "./profile.html?reason=signin-required";
-      return;
-    }
-
-    try {
-      const sessions = await apiRequestWithSchedulerRecovery(
-        "/api/sessions/me",
-        { auth: true },
-        {
-          onRecovering: () => {
-            setText("[data-session-status]", "Recovering");
-            setText("[data-api-status]", "Recovering rig service...");
-          }
-        }
-      );
-
-      const session = pickBestSession(sessions, gameSlug);
-      if (!session) {
-        setText("[data-session-status]", "No Session");
-        setText("[data-bootstrap-message]", "No cloud session found. Launch from Library first.");
-        setText("[data-api-status]", "No active session");
-        return;
-      }
-
-      if (session.status === "queued") {
-        setText("[data-session-status]", "Queued");
-        setText("[data-bootstrap-message]", "Session queued. Enter fullscreen now, stream will start when assigned.");
-        setText("[data-api-status]", `Queue position: ${session.queuePosition || "..."}`);
-        return;
-      }
-
-      if (session.status === "disconnected") {
-        setText("[data-session-status]", "Reconnect");
-        setText("[data-bootstrap-message]", "Session disconnected. Keep fullscreen ready while reconnecting.");
-      } else {
-        setText("[data-session-status]", "Connected");
-        setText("[data-bootstrap-message]", "Host session is active. Keep fullscreen on for stream handoff.");
-      }
-
-      setText("[data-api-status]", `Session: ${session.id}`);
-    } catch (error) {
-      if (Number(error?.status || 0) === 401) {
-        window.location.href = "./profile.html?reason=signin-required";
-        return;
-      }
-
-      if (isSchedulerUnavailableError(error)) {
-        setText("[data-session-status]", "Preparing");
-        setText("[data-bootstrap-message]", "Stream service is syncing. Enter fullscreen and wait a moment.");
-        setText("[data-api-status]", "Preparing stream...");
-        return;
-      }
-
-      setText("[data-session-status]", "Ready");
-      setText("[data-bootstrap-message]", "Player is ready. Enter fullscreen to continue.");
-      setText("[data-api-status]", "Player mode");
-      console.error(error);
-    }
-  };
-
-  refreshSessionState();
-  setInterval(refreshSessionState, 10000);
+  const gameSlug = slugFromGameName(game);
+  createRuntime(gameSlug);
 };
 
 init();

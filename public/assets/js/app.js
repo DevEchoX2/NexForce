@@ -388,17 +388,12 @@ export const initLaunchModal = () => {
 
   let intervalRef;
   let launchRedirected = false;
-  let trackedSessionId = null;
 
   const stopSimulation = () => {
     if (intervalRef) {
       clearInterval(intervalRef);
       intervalRef = undefined;
     }
-  };
-
-  const stopTracking = () => {
-    trackedSessionId = null;
   };
 
   const updateQueueProgress = (queueCount) => {
@@ -411,45 +406,9 @@ export const initLaunchModal = () => {
     queueBarEl.style.width = `${pct}%`;
   };
 
-  const pollUntilActive = async () => {
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      const sessions = await apiRequestWithSchedulerRecovery(
-        "/api/sessions/me",
-        { auth: true },
-        {
-          onRecovering: () => {
-            if (statusEl) {
-              statusEl.textContent = "Recovering scheduler...";
-            }
-          }
-        }
-      );
-      const tracked = sessions.find((entry) => entry.id === trackedSessionId);
-
-      if (!tracked) {
-        continue;
-      }
-
-      if (queueEl && tracked.queuePosition) {
-        queueEl.textContent = String(tracked.queuePosition);
-        updateQueueProgress(tracked.queuePosition);
-      }
-      if (etaEl && tracked.queuePosition) {
-        etaEl.textContent = `${Math.max(1, tracked.queuePosition)} min`;
-      }
-
-      if (tracked.status === "active") {
-        return tracked;
-      }
-    }
-
-    return null;
-  };
-
-  const runSimulation = async () => {
+  const runSimulation = () => {
     const selectedPlan = appState.selectedPlan;
-    let queue = selectedPlan === "ultimate" ? 8 : selectedPlan === "performance" ? 18 : 30;
+    let queue = selectedPlan === "ultimate" ? 6 : selectedPlan === "performance" ? 12 : 20;
     let eta = Math.ceil(queue / 3);
     latencyEl.textContent = selectedPlan === "ultimate" ? "12 ms" : selectedPlan === "performance" ? "18 ms" : "26 ms";
     fpsEl.textContent = selectedPlan === "ultimate" ? "132 FPS" : selectedPlan === "performance" ? "112 FPS" : "88 FPS";
@@ -467,7 +426,6 @@ export const initLaunchModal = () => {
     stopSimulation();
     launchRedirected = false;
     const gameName = appState.activeGame || "Fortnite";
-    const gameSlug = slugFromGame(gameName);
 
     const redirectToPlayer = (message = "Starting player...") => {
       if (statusEl) {
@@ -481,113 +439,28 @@ export const initLaunchModal = () => {
       }
     };
 
-    const markLaunchUnavailable = (message = "Launch service unavailable") => {
-      if (statusEl) {
-        statusEl.textContent = message;
+    intervalRef = setInterval(() => {
+      const step = selectedPlan === "ultimate" ? 3 : selectedPlan === "performance" ? 2 : 1;
+      queue = Math.max(0, queue - step);
+      eta = Math.max(0, Math.ceil(queue / 3));
+
+      if (queueEl) {
+        queueEl.textContent = String(queue);
       }
+      updateQueueProgress(queue);
       if (etaEl) {
-        etaEl.textContent = "Unavailable";
-      }
-    };
-
-    const ensureSignedIn = async () => {
-      if (appState.authToken && appState.authUser) {
-        return;
-      }
-      const error = new Error("Authentication required");
-      error.status = 401;
-      throw error;
-    };
-
-    try {
-      await ensureSignedIn();
-      const requestResult = await apiRequestWithSchedulerRecovery(
-        "/api/sessions/request",
-        {
-          method: "POST",
-          auth: true,
-          body: {
-            gameSlug
-          }
-        },
-        {
-          onRecovering: () => {
-            if (statusEl) {
-              statusEl.textContent = "Recovering rig service...";
-            }
-          }
-        }
-      );
-
-      trackedSessionId = requestResult.session?.id || null;
-
-      let activeSession = requestResult.session;
-      if (requestResult.session?.status === "queued") {
-        if (statusEl) {
-          statusEl.textContent = "Queued";
-        }
-        if (queueEl && requestResult.queuePosition) {
-          queueEl.textContent = String(requestResult.queuePosition);
-          updateQueueProgress(requestResult.queuePosition);
-        }
-        if (etaEl && requestResult.queuePosition) {
-          etaEl.textContent = `${Math.max(1, requestResult.queuePosition)} min`;
-        }
-        const resolved = await pollUntilActive();
-        if (!resolved) {
-          redirectToPlayer("Queue pending. Opening player...");
-          return;
-        }
-        activeSession = resolved;
+        etaEl.textContent = queue <= 1 ? "Launching..." : `${Math.max(1, eta)} min`;
       }
 
       if (statusEl) {
-        statusEl.textContent = "Issuing launch ticket...";
+        statusEl.textContent = queue <= 1 ? "Launching player..." : "Queued";
       }
 
-      const ticket = await apiRequest("/api/launch/ticket", {
-        method: "POST",
-        auth: true,
-        body: {
-          gameSlug,
-          sessionId: activeSession.id
-        }
-      });
-
-      if (!launchRedirected) {
-        launchRedirected = true;
-        const game = encodeURIComponent(gameName);
-        const ticketId = encodeURIComponent(ticket.id || "");
-        window.location.href = `./play.html?game=${game}&ticket=${ticketId}`;
+      if (queue <= 1) {
+        stopSimulation();
+        redirectToPlayer("Opening game player...");
       }
-    } catch (error) {
-      const statusCode = Number(error?.status || 0);
-      if (statusCode === 401) {
-        if (statusEl) {
-          statusEl.textContent = "Sign in required";
-        }
-        window.location.href = "./profile.html?reason=signin-required";
-        return;
-      }
-
-      if (statusCode === 403) {
-        if (statusEl) {
-          statusEl.textContent = "Provider link required";
-        }
-        window.location.href = "./profile.html?reason=provider-link";
-        return;
-      }
-
-      if (isApiConnectionFailure(error)) {
-        redirectToPlayer("Service unavailable. Opening player...");
-        return;
-      }
-
-      redirectToPlayer("Opening player...");
-      console.error(error);
-    } finally {
-      stopTracking();
-    }
+    }, 900);
   };
 
   const openModal = (selectedGame = "Cloud Session") => {
@@ -603,7 +476,6 @@ export const initLaunchModal = () => {
     modal.classList.add("hidden");
     document.body.classList.remove("overflow-hidden");
     stopSimulation();
-    stopTracking();
   };
 
   closeButtons.forEach((button) => {
