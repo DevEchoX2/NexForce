@@ -7,7 +7,8 @@ const STORAGE_KEYS = {
   preferredDevice: "nexforce.preferredDevice",
   networkProfile: "nexforce.networkProfile",
   activeGame: "nexforce.activeGame",
-  transportMode: "nexforce.transportMode"
+  transportMode: "nexforce.transportMode",
+  apiBaseUrl: "nexforce.apiBaseUrl"
 };
 
 const getStoredValue = (key, fallbackValue) => {
@@ -201,6 +202,17 @@ export const appState = {
   },
   set transportMode(value) {
     setStoredValue(STORAGE_KEYS.transportMode, value || "auto");
+  },
+  get apiBaseUrl() {
+    return getStoredValue(STORAGE_KEYS.apiBaseUrl, "");
+  },
+  set apiBaseUrl(value) {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      localStorage.removeItem(STORAGE_KEYS.apiBaseUrl);
+      return;
+    }
+    setStoredValue(STORAGE_KEYS.apiBaseUrl, normalized);
   }
 };
 
@@ -210,11 +222,93 @@ const slugFromGame = (name = "") =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
 
+const normalizeApiBase = (value) => String(value || "").trim().replace(/\/+$/, "");
+
+const getApiBaseFromQuery = () => {
+  try {
+    const queryValue = new URLSearchParams(window.location.search).get("apiBase");
+    return queryValue ? normalizeApiBase(queryValue) : "";
+  } catch {
+    return "";
+  }
+};
+
 const getApiBase = () => {
+  const queryBase = getApiBaseFromQuery();
+  if (queryBase) {
+    appState.apiBaseUrl = queryBase;
+    return queryBase;
+  }
+
+  const globalBase = normalizeApiBase(window.NEXFORCE_API_BASE_URL || "");
+  if (globalBase) {
+    return globalBase;
+  }
+
+  const storedBase = normalizeApiBase(appState.apiBaseUrl);
+  if (storedBase) {
+    return storedBase;
+  }
+
   if (window.location.protocol === "file:") {
     return "http://localhost:5500";
   }
-  return window.location.origin;
+  return normalizeApiBase(window.location.origin);
+};
+
+export const setApiBaseUrl = (value) => {
+  appState.apiBaseUrl = normalizeApiBase(value);
+  return getApiBase();
+};
+
+export const getResolvedApiBase = () => getApiBase();
+
+export const isSchedulerUnavailableError = (error) => {
+  const statusCode = Number(error?.status || 0);
+  const code = String(error?.payload?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return statusCode === 503 && (code === "scheduler_unavailable" || message.includes("scheduler unavailable"));
+};
+
+export const recoverScheduler = async () => {
+  if (!appState.authToken || !appState.authUser) {
+    return { recovered: false, reason: "unauthenticated" };
+  }
+
+  try {
+    const result = await apiRequest("/api/control/worker/tick", {
+      method: "POST",
+      auth: true
+    });
+    return { recovered: true, result };
+  } catch (error) {
+    return { recovered: false, error };
+  }
+};
+
+export const apiRequestWithSchedulerRecovery = async (
+  path,
+  options = {},
+  { allowRecovery = true, onRecovering = null } = {}
+) => {
+  try {
+    return await apiRequest(path, options);
+  } catch (error) {
+    if (!allowRecovery || path === "/api/control/worker/tick" || !isSchedulerUnavailableError(error)) {
+      throw error;
+    }
+
+    if (typeof onRecovering === "function") {
+      onRecovering();
+    }
+
+    const recovered = await recoverScheduler();
+    if (!recovered.recovered) {
+      throw error;
+    }
+
+    return apiRequest(path, options);
+  }
 };
 
 export const apiRequest = async (path, { method = "GET", body, auth = false } = {}) => {
@@ -307,7 +401,17 @@ export const initLaunchModal = () => {
   const pollUntilActive = async () => {
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      const sessions = await apiRequest("/api/sessions/me", { auth: true });
+      const sessions = await apiRequestWithSchedulerRecovery(
+        "/api/sessions/me",
+        { auth: true },
+        {
+          onRecovering: () => {
+            if (statusEl) {
+              statusEl.textContent = "Recovering scheduler...";
+            }
+          }
+        }
+      );
       const tracked = sessions.find((entry) => entry.id === trackedSessionId);
 
       if (!tracked) {
@@ -372,13 +476,23 @@ export const initLaunchModal = () => {
 
     try {
       await ensureSignedIn();
-      const requestResult = await apiRequest("/api/sessions/request", {
-        method: "POST",
-        auth: true,
-        body: {
-          gameSlug
+      const requestResult = await apiRequestWithSchedulerRecovery(
+        "/api/sessions/request",
+        {
+          method: "POST",
+          auth: true,
+          body: {
+            gameSlug
+          }
+        },
+        {
+          onRecovering: () => {
+            if (statusEl) {
+              statusEl.textContent = "Recovering rig service...";
+            }
+          }
         }
-      });
+      );
 
       trackedSessionId = requestResult.session?.id || null;
 
