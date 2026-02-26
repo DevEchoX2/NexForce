@@ -60,6 +60,7 @@ const getTransportHelpText = ({ mode, reason }) => {
 
 let rigTimeUnlocked = false;
 let remainingSessionSeconds = null;
+let rigSidebarOpen = false;
 
 const formatRemainingTime = (seconds) => {
   const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -96,15 +97,38 @@ const updateRigTimeDisplay = () => {
 
 const initRigTimeUnlock = () => {
   const unlockButton = document.querySelector("[data-rig-unlock]");
+  const rigSidebar = document.querySelector("[data-rig-sidebar]");
   if (!unlockButton) {
     return;
   }
 
+  const applySidebarState = () => {
+    if (!rigSidebar) {
+      return;
+    }
+
+    rigSidebar.style.transform = rigSidebarOpen ? "translateX(0)" : "translateX(calc(-100% + 3.5rem))";
+    unlockButton.setAttribute("aria-expanded", rigSidebarOpen ? "true" : "false");
+  };
+
   unlockButton.addEventListener("click", () => {
-    rigTimeUnlocked = true;
+    if (!rigTimeUnlocked) {
+      rigTimeUnlocked = true;
+    }
+    rigSidebarOpen = !rigSidebarOpen;
+    applySidebarState();
     updateRigTimeDisplay();
   });
 
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !rigSidebarOpen) {
+      return;
+    }
+    rigSidebarOpen = false;
+    applySidebarState();
+  });
+
+  applySidebarState();
   updateRigTimeDisplay();
 };
 
