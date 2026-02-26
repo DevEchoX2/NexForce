@@ -389,7 +389,6 @@ export const initLaunchModal = () => {
   let intervalRef;
   let launchRedirected = false;
   let trackedSessionId = null;
-  let apiRepairAttempted = false;
 
   const stopSimulation = () => {
     if (intervalRef) {
@@ -470,6 +469,18 @@ export const initLaunchModal = () => {
     const gameName = appState.activeGame || "Fortnite";
     const gameSlug = slugFromGame(gameName);
 
+    const redirectToPlayer = (message = "Starting player...") => {
+      if (statusEl) {
+        statusEl.textContent = message;
+      }
+
+      if (!launchRedirected) {
+        launchRedirected = true;
+        const game = encodeURIComponent(gameName);
+        window.location.href = `./play.html?game=${game}`;
+      }
+    };
+
     const markLaunchUnavailable = (message = "Launch service unavailable") => {
       if (statusEl) {
         statusEl.textContent = message;
@@ -524,7 +535,7 @@ export const initLaunchModal = () => {
         }
         const resolved = await pollUntilActive();
         if (!resolved) {
-          markLaunchUnavailable("Queue is still pending. Keep waiting or try again.");
+          redirectToPlayer("Queue pending. Opening player...");
           return;
         }
         activeSession = resolved;
@@ -547,8 +558,7 @@ export const initLaunchModal = () => {
         launchRedirected = true;
         const game = encodeURIComponent(gameName);
         const ticketId = encodeURIComponent(ticket.id || "");
-        const apiBaseParam = encodeURIComponent(getResolvedApiBase());
-        window.location.href = `./play.html?game=${game}&ticket=${ticketId}&apiBase=${apiBaseParam}`;
+        window.location.href = `./play.html?game=${game}&ticket=${ticketId}`;
       }
     } catch (error) {
       const statusCode = Number(error?.status || 0);
@@ -568,28 +578,12 @@ export const initLaunchModal = () => {
         return;
       }
 
-      if (!apiRepairAttempted && isApiConnectionFailure(error)) {
-        apiRepairAttempted = true;
-        if (statusEl) {
-          statusEl.textContent = "Control API not connected";
-        }
-
-        const enteredApiBase = window.prompt(
-          "Enter your NexForce Control API URL (example: https://your-control-api.example.com)",
-          getResolvedApiBase()
-        );
-
-        if (enteredApiBase && String(enteredApiBase).trim()) {
-          setApiBaseUrl(String(enteredApiBase).trim());
-          if (statusEl) {
-            statusEl.textContent = "Retrying with saved API URL...";
-          }
-          await runSimulation();
-          return;
-        }
+      if (isApiConnectionFailure(error)) {
+        redirectToPlayer("Service unavailable. Opening player...");
+        return;
       }
 
-      markLaunchUnavailable("Launch service unavailable. Check host connection and retry.");
+      redirectToPlayer("Opening player...");
       console.error(error);
     } finally {
       stopTracking();
@@ -600,7 +594,6 @@ export const initLaunchModal = () => {
     gameName.textContent = selectedGame;
     appState.recentGame = selectedGame;
     appState.activeGame = selectedGame;
-    apiRepairAttempted = false;
     modal.classList.remove("hidden");
     document.body.classList.add("overflow-hidden");
     runSimulation();

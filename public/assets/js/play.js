@@ -1,11 +1,8 @@
 import {
   apiRequestWithSchedulerRecovery,
   appState,
-  getResolvedApiBase,
   initAuthShell,
-  isApiConnectionFailure,
   isSchedulerUnavailableError,
-  setApiBaseUrl,
   toTitle
 } from "./app.js";
 
@@ -142,34 +139,15 @@ const init = () => {
       }
 
       if (isSchedulerUnavailableError(error)) {
-        setText("[data-session-status]", "Degraded");
-        setText("[data-bootstrap-message]", "Rig service is temporarily unavailable. Retry shortly.");
-        setText("[data-api-status]", "Scheduler unavailable");
+        setText("[data-session-status]", "Preparing");
+        setText("[data-bootstrap-message]", "Stream service is syncing. Enter fullscreen and wait a moment.");
+        setText("[data-api-status]", "Preparing stream...");
         return;
       }
 
-      if (isApiConnectionFailure(error)) {
-        setText("[data-session-status]", "API Required");
-        setText("[data-bootstrap-message]", "Control API not connected. Set API URL to continue.");
-        const enteredApiBase = window.prompt(
-          "Enter your NexForce Control API URL (example: https://your-control-api.example.com)",
-          getResolvedApiBase()
-        );
-
-        if (enteredApiBase && String(enteredApiBase).trim()) {
-          setApiBaseUrl(String(enteredApiBase).trim());
-          setText("[data-api-status]", `Saved API: ${getResolvedApiBase()}`);
-          await refreshSessionState();
-          return;
-        }
-
-        setText("[data-api-status]", "Control API URL not set");
-        return;
-      }
-
-      setText("[data-session-status]", "Unavailable");
-      setText("[data-bootstrap-message]", "Could not load cloud session state right now.");
-      setText("[data-api-status]", "Service unavailable");
+      setText("[data-session-status]", "Ready");
+      setText("[data-bootstrap-message]", "Player is ready. Enter fullscreen to continue.");
+      setText("[data-api-status]", "Player mode");
       console.error(error);
     }
   };
