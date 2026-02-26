@@ -36,7 +36,7 @@
         <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-3xl font-bold">Now Playing: <span data-game-name>Fortnite</span></h1>
-            <p class="mt-2 text-sm text-soft">Cloud session bootstrap and host connection status.</p>
+            <p class="mt-2 text-sm text-soft">Cloud stream handoff surface.</p>
           </div>
           <div class="flex gap-2 text-xs">
             <span class="rounded-full border border-white/15 bg-white/5 px-3 py-1">Plan: <strong data-plan-name class="text-white">Free</strong></span>
@@ -44,120 +44,27 @@
           </div>
         </div>
 
-        <section class="grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <article class="glass-card p-5">
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-lg font-semibold">Session Bootstrap</h2>
+        <section class="mx-auto max-w-3xl">
+          <div
+            data-play-surface
+            class="relative aspect-square overflow-hidden rounded-2xl border border-primary/30 bg-black/70"
+          >
+            <div
+              data-play-overlay
+              class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/55 p-6 text-center"
+            >
+              <p data-bootstrap-message class="max-w-md text-sm text-soft">
+                Enter fullscreen to start your cloud stream.
+              </p>
               <button
-                data-refresh-status
-                class="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
+                data-enter-fullscreen
+                class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
               >
-                Refresh
+                Enter Fullscreen
               </button>
             </div>
-            <p data-bootstrap-message class="mb-4 text-sm text-soft">Checking launch ticket, session, and host availability...</p>
-            <dl class="grid gap-2 text-sm sm:grid-cols-2">
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Session ID</dt>
-                <dd data-session-id class="mt-1 font-medium text-white">—</dd>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Session State</dt>
-                <dd data-session-state class="mt-1 font-medium text-white">—</dd>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Queue Position</dt>
-                <dd data-session-queue class="mt-1 font-medium text-white">—</dd>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Transport</dt>
-                <dd data-stream-transport class="mt-1 font-medium text-white">—</dd>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Stream Profile</dt>
-                <dd data-stream-profile class="mt-1 font-medium text-white">—</dd>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <dt class="text-soft">Network Health</dt>
-                <dd data-stream-health class="mt-1 font-medium text-white">—</dd>
-              </div>
-            </dl>
-          </article>
-
-          <article class="glass-card p-5">
-            <h2 class="mb-3 text-lg font-semibold">Host Link</h2>
-            <dl class="space-y-2 text-sm">
-              <div>
-                <dt class="text-soft">Host</dt>
-                <dd data-host-name class="font-medium text-white">—</dd>
-              </div>
-              <div>
-                <dt class="text-soft">Region</dt>
-                <dd data-host-region class="font-medium text-white">—</dd>
-              </div>
-              <div>
-                <dt class="text-soft">Heartbeat</dt>
-                <dd data-host-heartbeat class="font-medium text-white">—</dd>
-              </div>
-              <div>
-                <dt class="text-soft">Host Status</dt>
-                <dd data-host-status class="font-medium text-white">—</dd>
-              </div>
-            </dl>
-            <p class="mt-4 text-xs text-soft">When this shows online heartbeat updates, your host PC is connected and ready for Moonlight/Sunshine streaming handoff.</p>
-
-            <div class="mt-5 rounded-lg border border-white/10 bg-black/30 p-3">
-              <h3 class="text-sm font-semibold">Control API Connection</h3>
-              <p class="mt-1 text-xs text-soft">Set your hosted control API URL so this player can fetch rig and session data.</p>
-              <label class="mt-3 block text-xs text-soft" for="api-base-input">Control API URL</label>
-              <input
-                id="api-base-input"
-                data-api-base-input
-                type="url"
-                placeholder="https://your-control-api.example.com"
-                class="mt-1 w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 text-sm text-white outline-none transition focus:border-primary/60"
-              />
-              <div class="mt-2 flex gap-2">
-                <button
-                  data-api-base-save
-                  class="rounded-lg border border-primary/70 bg-primary px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110"
-                >
-                  Save API
-                </button>
-                <button
-                  data-api-base-test
-                  class="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
-                >
-                  Test Connection
-                </button>
-              </div>
-              <p data-api-status class="mt-2 text-xs text-soft">API not configured.</p>
-            </div>
-          </article>
-        </section>
-
-        <section class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-soft">
-          <button
-            data-retry-connect
-            class="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
-          >
-            Retry Connection
-          </button>
-          <button
-            data-recover-scheduler
-            class="rounded-lg border border-primary/70 bg-primary px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110"
-          >
-            Recover Rig Service
-          </button>
-          <a
-            href="./library.html"
-            class="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
-          >
-            Back to Library
-          </a>
-          <p>
-            No fake browser mini-games are used here. This page only reflects real control-plane session and host stream health data.
-          </p>
+          </div>
+          <p data-api-status class="mt-3 text-center text-xs text-soft">Checking service...</p>
         </section>
       </main>
     </div>
