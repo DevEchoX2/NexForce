@@ -58,6 +58,41 @@ const getTransportHelpText = ({ mode, reason }) => {
   return "Compatibility mode active (WebRTC unavailable). Use Moonlight client over Tailscale.";
 };
 
+let fullscreenActive = false;
+
+const updateFullscreenState = () => {
+  const stage = document.querySelector("[data-runtime-stage]");
+  const fullscreenBtn = document.querySelector("[data-enter-fullscreen]");
+  fullscreenActive = document.fullscreenElement === stage;
+  if (fullscreenBtn) {
+    fullscreenBtn.classList.toggle("hidden", fullscreenActive);
+  }
+};
+
+const initFullscreenControl = () => {
+  const stage = document.querySelector("[data-runtime-stage]");
+  const fullscreenBtn = document.querySelector("[data-enter-fullscreen]");
+  if (!stage || !fullscreenBtn) {
+    return;
+  }
+
+  fullscreenBtn.addEventListener("click", async () => {
+    try {
+      await stage.requestFullscreen();
+      updateFullscreenState();
+      setPanelText("[data-runtime-overlay]", "Fullscreen enabled. Bootstrap check in progress...");
+    } catch {
+      setPanelText("[data-runtime-overlay]", "Fullscreen is required before launching. Allow fullscreen and try again.");
+    }
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    updateFullscreenState();
+  });
+
+  updateFullscreenState();
+};
+
 const findActiveSession = async (gameSlug) => {
   const sessions = await apiRequest("/api/sessions/me", { auth: true });
   return (
@@ -70,6 +105,7 @@ const findActiveSession = async (gameSlug) => {
 const hydrateStreamBootstrap = async (activeSession) => {
   if (!activeSession?.id) {
     setPanelText("[data-runtime-overlay]", "No active host session found. Launch from Library to start one.");
+    setPanelText("[data-bootstrap-status]", "No Session");
     return null;
   }
 
@@ -85,10 +121,11 @@ const hydrateStreamBootstrap = async (activeSession) => {
     setPanelText("[data-stream-backup]", toTitle(String(stream.backupControl || "parsec")));
 
     const healthy = stream.audioReady !== false && stream.networkOk !== false;
+    setPanelText("[data-bootstrap-status]", healthy ? "Ready" : "Degraded");
     setPanelText(
       "[data-runtime-overlay]",
       healthy
-        ? "Host stream is ready. Open stream client to continue on your Sunshine host."
+        ? "Bootstrap Ready. Enter fullscreen, then open stream client to continue on your Sunshine host."
         : "Host stream checks are not healthy yet (audio/network). Verify host setup from host.md."
     );
 
@@ -99,6 +136,7 @@ const hydrateStreamBootstrap = async (activeSession) => {
     };
   } catch {
     setPanelText("[data-runtime-overlay]", "Host bootstrap unavailable. Check host heartbeat and stream-health APIs.");
+    setPanelText("[data-bootstrap-status]", "Unavailable");
     return null;
   }
 };
@@ -109,10 +147,21 @@ const initOpenStreamButton = (sessionContext) => {
     return;
   }
 
-  button.disabled = !sessionContext?.healthy;
+  button.disabled = !sessionContext?.healthy || !fullscreenActive;
+
+  const refreshButtonState = () => {
+    button.disabled = !sessionContext?.healthy || !fullscreenActive;
+  };
+
+  document.addEventListener("fullscreenchange", refreshButtonState);
 
   button.addEventListener("click", async () => {
     if (!sessionContext?.sessionId || !sessionContext?.gameSlug) {
+      return;
+    }
+
+    if (!fullscreenActive) {
+      setPanelText("[data-runtime-overlay]", "Fullscreen is required. Press Enter Fullscreen first.");
       return;
     }
 
@@ -197,6 +246,8 @@ const init = async () => {
   if (helpEl) {
     helpEl.textContent = getTransportHelpText(transport);
   }
+
+  initFullscreenControl();
 
   const activeSession = await findActiveSession(gameSlug);
   const sessionContext = await hydrateStreamBootstrap(activeSession);

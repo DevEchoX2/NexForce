@@ -46,7 +46,7 @@
         </div>
 
         <section class="mt-4">
-          <div data-runtime-stage class="relative min-h-[66vh] overflow-hidden rounded-3xl bg-black/65 sm:min-h-[72vh]">
+          <div data-runtime-stage class="relative min-h-[66vh] overflow-hidden rounded-3xl border border-white/20 bg-black/65 sm:min-h-[72vh]">
             <div class="absolute inset-0 bg-gradient-to-b from-emerald-500/10 via-transparent to-black/30"></div>
 
             <div class="absolute left-4 right-4 top-4 flex flex-wrap items-center justify-between gap-2 text-xs sm:left-6 sm:right-6">
@@ -54,12 +54,16 @@
               <div class="flex items-center gap-2">
                 <span class="rounded-full bg-white/10 px-3 py-1">Host: <strong data-stream-host class="text-white">Pending</strong></span>
                 <span class="rounded-full bg-primary/15 px-3 py-1 text-primary">Network: <strong data-stream-network class="text-primary">Pending</strong></span>
+                <span class="rounded-full bg-white/10 px-3 py-1">Bootstrap: <strong data-bootstrap-status class="text-white">Pending</strong></span>
               </div>
             </div>
 
             <div class="absolute inset-0 flex items-center justify-center px-4 sm:px-8">
               <div class="max-w-2xl text-center text-sm text-soft">
                 <p class="text-[11px] uppercase tracking-[0.2em] text-primary/80">Live Cloud Session</p>
+                <button data-enter-fullscreen class="mt-3 rounded-xl bg-white/15 px-5 py-2 text-sm font-semibold text-white transition hover:bg-white/25">
+                  Enter Fullscreen
+                </button>
                 <p class="mt-3 text-sm text-soft" data-runtime-overlay>
                   Waiting for host stream bootstrap...
                 </p>
