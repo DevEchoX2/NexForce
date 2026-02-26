@@ -1,29 +1,13 @@
-import { appState, initAuthShell, toTitle } from "./app.js";
+import { apiRequest, appState, initAuthShell, toTitle } from "./app.js";
 
 const getGameFromQuery = () => {
   const params = new URLSearchParams(window.location.search);
   return params.get("game") || appState.activeGame || "Fortnite";
 };
 
-const runtimeProfiles = {
-  fortnite: {
-    label: "Target Rush",
-    help: "Click moving targets before time runs out.",
-    durationSec: 60,
-    mode: "shooter"
-  },
-  roblox: {
-    label: "Orb Collector",
-    help: "Use WASD or Arrow keys to move and collect nodes.",
-    durationSec: 60,
-    mode: "collector"
-  },
-  default: {
-    label: "Arcade Runtime",
-    help: "Use WASD or Arrow keys to move and collect nodes.",
-    durationSec: 60,
-    mode: "collector"
-  }
+const getTicketFromQuery = () => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("ticket") || "";
 };
 
 const slugFromGameName = (name) =>
@@ -32,311 +16,189 @@ const slugFromGameName = (name) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const msSince = (isoTime) => {
+  if (!isoTime) {
+    return null;
+  }
+  const timestamp = new Date(isoTime).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  return Date.now() - timestamp;
+};
 
-const createRuntime = (profile) => {
-  const canvas = document.querySelector("[data-game-canvas]");
-  const stage = document.querySelector("[data-runtime-stage]");
-  if (!canvas) {
-    return { start: () => {}, reset: () => {} };
+const formatAgo = (isoTime) => {
+  const elapsed = msSince(isoTime);
+  if (elapsed === null) {
+    return "Unknown";
   }
 
-  const startBtn = document.querySelector("[data-runtime-start]");
-  const resetBtn = document.querySelector("[data-runtime-reset]");
-  const overlay = document.querySelector("[data-runtime-overlay]");
-  const scoreEl = document.querySelector("[data-runtime-score]");
-  const timeEl = document.querySelector("[data-runtime-time]");
-  const modeEl = document.querySelector("[data-runtime-mode]");
-  const helpEl = document.querySelector("[data-runtime-help]");
-
-  if (modeEl) modeEl.textContent = profile.label;
-  if (helpEl) helpEl.textContent = profile.help;
-
-  const context = canvas.getContext("2d");
-  canvas.width = 1280;
-  canvas.height = 720;
-
-  const state = {
-    started: false,
-    ended: false,
-    score: 0,
-    endAt: 0,
-    remainingMs: profile.durationSec * 1000,
-    keys: new Set(),
-    player: { x: 640, y: 360, radius: 20, speed: 430 },
-    orb: { x: 250, y: 220, radius: 14 },
-    target: { x: 620, y: 260, radius: 28, vx: 210, vy: 170 },
-    rafId: 0,
-    previousTime: 0
-  };
-
-  const updateHud = () => {
-    if (scoreEl) scoreEl.textContent = String(state.score);
-    const remainingMs = state.started ? Math.max(0, state.endAt - performance.now()) : state.remainingMs;
-    const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
-    if (timeEl) timeEl.textContent = `${remaining}s`;
-  };
-
-  const isFullscreen = () => document.fullscreenElement === stage || document.fullscreenElement === canvas;
-
-  const randomOrb = () => {
-    state.orb.x = Math.floor(Math.random() * (canvas.width - 100)) + 50;
-    state.orb.y = Math.floor(Math.random() * (canvas.height - 100)) + 50;
-  };
-
-  const resetState = () => {
-    state.started = false;
-    state.ended = false;
-    state.score = 0;
-    state.remainingMs = profile.durationSec * 1000;
-    state.player.x = 640;
-    state.player.y = 360;
-    state.target.x = 620;
-    state.target.y = 260;
-    state.target.vx = 210;
-    state.target.vy = 170;
-    randomOrb();
-    if (overlay) overlay.textContent = "Fullscreen is required. Press Start to enter fullscreen and begin.";
-    if (overlay) overlay.classList.remove("hidden");
-    if (startBtn) startBtn.textContent = "Start";
-    updateHud();
-  };
-
-  const endRun = () => {
-    state.started = false;
-    state.ended = true;
-    state.remainingMs = 0;
-    if (overlay) {
-      overlay.textContent = `Session complete. Final score: ${state.score}`;
-      overlay.classList.remove("hidden");
-    }
-    if (startBtn) startBtn.textContent = "Restart";
-  };
-
-  const drawCollector = () => {
-    context.fillStyle = "#06090f";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    context.fillStyle = "#22d3ee";
-    context.beginPath();
-    context.arc(state.orb.x, state.orb.y, state.orb.radius, 0, Math.PI * 2);
-    context.fill();
-
-    context.fillStyle = "#39ff14";
-    context.beginPath();
-    context.arc(state.player.x, state.player.y, state.player.radius, 0, Math.PI * 2);
-    context.fill();
-  };
-
-  const drawShooter = () => {
-    context.fillStyle = "#0a0b13";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
-    context.strokeStyle = "#39ff14";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(canvas.width / 2 - 16, canvas.height / 2);
-    context.lineTo(canvas.width / 2 + 16, canvas.height / 2);
-    context.moveTo(canvas.width / 2, canvas.height / 2 - 16);
-    context.lineTo(canvas.width / 2, canvas.height / 2 + 16);
-    context.stroke();
-
-    context.fillStyle = "#22d3ee";
-    context.beginPath();
-    context.arc(state.target.x, state.target.y, state.target.radius, 0, Math.PI * 2);
-    context.fill();
-  };
-
-  const tickCollector = (delta) => {
-    const speed = state.player.speed * delta;
-    if (state.keys.has("arrowup") || state.keys.has("w")) state.player.y -= speed;
-    if (state.keys.has("arrowdown") || state.keys.has("s")) state.player.y += speed;
-    if (state.keys.has("arrowleft") || state.keys.has("a")) state.player.x -= speed;
-    if (state.keys.has("arrowright") || state.keys.has("d")) state.player.x += speed;
-
-    state.player.x = clamp(state.player.x, state.player.radius, canvas.width - state.player.radius);
-    state.player.y = clamp(state.player.y, state.player.radius, canvas.height - state.player.radius);
-
-    const distance = Math.hypot(state.player.x - state.orb.x, state.player.y - state.orb.y);
-    if (distance <= state.player.radius + state.orb.radius) {
-      state.score += 1;
-      randomOrb();
-    }
-  };
-
-  const tickShooter = (delta) => {
-    state.target.x += state.target.vx * delta;
-    state.target.y += state.target.vy * delta;
-
-    if (state.target.x <= state.target.radius || state.target.x >= canvas.width - state.target.radius) {
-      state.target.vx *= -1;
-      state.target.x = clamp(state.target.x, state.target.radius, canvas.width - state.target.radius);
-    }
-
-    if (state.target.y <= state.target.radius || state.target.y >= canvas.height - state.target.radius) {
-      state.target.vy *= -1;
-      state.target.y = clamp(state.target.y, state.target.radius, canvas.height - state.target.radius);
-    }
-  };
-
-  const loop = (time) => {
-    if (!state.previousTime) {
-      state.previousTime = time;
-    }
-    const delta = Math.min(0.05, (time - state.previousTime) / 1000);
-    state.previousTime = time;
-
-    if (state.started && !state.ended) {
-      if (profile.mode === "collector") {
-        tickCollector(delta);
-      } else {
-        tickShooter(delta);
-      }
-
-      if (time >= state.endAt) {
-        endRun();
-      }
-      updateHud();
-    }
-
-    if (profile.mode === "collector") {
-      drawCollector();
-    } else {
-      drawShooter();
-    }
-
-    state.rafId = requestAnimationFrame(loop);
-  };
-
-  const start = () => {
-    const beginRun = () => {
-      if (state.started && !state.ended) {
-        return;
-      }
-
-      if (state.ended) {
-        resetState();
-      }
-
-      state.started = true;
-      state.endAt = performance.now() + state.remainingMs;
-      state.previousTime = 0;
-
-      if (overlay) overlay.classList.add("hidden");
-      if (startBtn) startBtn.textContent = "Running";
-      updateHud();
-    };
-
-    if (isFullscreen()) {
-      beginRun();
-      return;
-    }
-
-    const target = stage || canvas;
-    if (target?.requestFullscreen) {
-      target
-        .requestFullscreen()
-        .then(() => beginRun())
-        .catch(() => {
-          if (overlay) {
-            overlay.textContent = "Fullscreen was blocked. Allow fullscreen to play.";
-            overlay.classList.remove("hidden");
-          }
-        });
-      return;
-    }
-
-    if (overlay) {
-      overlay.textContent = "Fullscreen is not supported in this browser.";
-      overlay.classList.remove("hidden");
-    }
-  };
-
-  if (profile.mode === "shooter") {
-    canvas.addEventListener("click", (event) => {
-      if (!state.started || state.ended) {
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const x = (event.clientX - rect.left) * scaleX;
-      const y = (event.clientY - rect.top) * scaleY;
-      const distance = Math.hypot(x - state.target.x, y - state.target.y);
-
-      if (distance <= state.target.radius) {
-        state.score += 1;
-        state.target.x = Math.floor(Math.random() * (canvas.width - 100)) + 50;
-        state.target.y = Math.floor(Math.random() * (canvas.height - 100)) + 50;
-        state.target.vx = (Math.random() > 0.5 ? 1 : -1) * (170 + Math.random() * 120);
-        state.target.vy = (Math.random() > 0.5 ? 1 : -1) * (140 + Math.random() * 100);
-        updateHud();
-      }
-    });
+  const seconds = Math.max(0, Math.floor(elapsed / 1000));
+  if (seconds < 60) {
+    return `${seconds}s ago`;
   }
 
-  window.addEventListener("keydown", (event) => {
-    state.keys.add(event.key.toLowerCase());
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+};
+
+const setText = (selector, value) => {
+  const element = document.querySelector(selector);
+  if (element) {
+    element.textContent = value;
+  }
+};
+
+const pickBestSession = (sessions, gameSlug) => {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    return null;
+  }
+
+  const byGame = sessions.filter((entry) => slugFromGameName(entry.gameSlug || entry.gameTitle || "") === gameSlug);
+  const candidates = byGame.length ? byGame : sessions;
+
+  const active = candidates.find((entry) => entry.status === "active");
+  if (active) {
+    return active;
+  }
+
+  const disconnected = candidates.find((entry) => entry.status === "disconnected");
+  if (disconnected) {
+    return disconnected;
+  }
+
+  const queued = candidates.find((entry) => entry.status === "queued");
+  return queued || candidates[0] || null;
+};
+
+const renderBaseMeta = (game) => {
+  document.querySelectorAll("[data-game-name]").forEach((el) => {
+    el.textContent = game;
   });
 
-  window.addEventListener("keyup", (event) => {
-    state.keys.delete(event.key.toLowerCase());
-  });
+  setText("[data-plan-name]", toTitle(appState.selectedPlan));
+};
 
-  startBtn?.addEventListener("click", start);
-  resetBtn?.addEventListener("click", resetState);
+const renderDisconnectedState = (message, status = "Waiting") => {
+  setText("[data-bootstrap-message]", message);
+  setText("[data-session-status]", status);
+  setText("[data-session-id]", "—");
+  setText("[data-session-state]", "—");
+  setText("[data-session-queue]", "—");
+  setText("[data-stream-transport]", "—");
+  setText("[data-stream-profile]", "—");
+  setText("[data-stream-health]", "—");
+  setText("[data-host-name]", "—");
+  setText("[data-host-region]", "—");
+  setText("[data-host-heartbeat]", "—");
+  setText("[data-host-status]", "—");
+};
 
-  document.addEventListener("fullscreenchange", () => {
-    if (!isFullscreen() && state.started && !state.ended) {
-      state.remainingMs = Math.max(0, state.endAt - performance.now());
-      state.started = false;
-      if (overlay) {
-        overlay.textContent = "Fullscreen is required. Press Start to resume.";
-        overlay.classList.remove("hidden");
-      }
-      if (startBtn) {
-        startBtn.textContent = "Resume";
-      }
-      updateHud();
-    }
-  });
+const loadLiveStatus = async (gameSlug, ticketId) => {
+  if (!appState.authToken || !appState.authUser) {
+    window.location.href = "./profile.html?reason=signin-required";
+    return;
+  }
 
-  resetState();
-  state.rafId = requestAnimationFrame(loop);
+  const sessions = await apiRequest("/api/sessions/me", { auth: true });
+  const session = pickBestSession(sessions, gameSlug);
 
-  return {
-    start,
-    reset: resetState,
-    destroy: () => cancelAnimationFrame(state.rafId)
-  };
+  if (!session) {
+    renderDisconnectedState("No active or queued cloud session found. Launch a game from Library first.", "No Session");
+    return;
+  }
+
+  setText("[data-session-id]", session.id || "—");
+  setText("[data-session-state]", toTitle(session.status || "unknown"));
+  setText("[data-session-queue]", session.queuePosition ? String(session.queuePosition) : "Not queued");
+
+  if (session.status === "queued") {
+    setText("[data-session-status]", "Queued");
+    setText("[data-bootstrap-message]", "Session is queued. Keep this page open while host capacity is assigned.");
+    setText("[data-host-status]", "Waiting for assignment");
+    return;
+  }
+
+  const [bootstrap, hosts] = await Promise.all([
+    apiRequest(`/api/stream/sessions/${encodeURIComponent(session.id)}/bootstrap`, { auth: true }),
+    apiRequest("/api/hosts", { auth: true })
+  ]);
+
+  const host = (hosts || []).find((entry) => entry.id === bootstrap?.host?.id) || null;
+  const stream = bootstrap?.stream || {};
+
+  if (ticketId) {
+    setText("[data-bootstrap-message]", `Launch ticket ${ticketId.slice(0, 8)}… verified with active host session.`);
+  } else {
+    setText("[data-bootstrap-message]", "Active cloud session found and host stream health is connected.");
+  }
+
+  setText("[data-session-status]", session.status === "disconnected" ? "Reconnect" : "Connected");
+  setText(
+    "[data-stream-transport]",
+    `${toTitle(stream.software || "unknown")} + ${toTitle(stream.protocol || "unknown")} via ${toTitle(stream.remoteNetwork || "unknown")}`
+  );
+  setText(
+    "[data-stream-profile]",
+    `${stream.profile?.resolution || "—"} @ ${stream.profile?.fps || "—"}fps • ${stream.profile?.bitrateMbps || "—"} Mbps • ${String(
+      stream.profile?.codec || "—"
+    ).toUpperCase()}`
+  );
+  setText(
+    "[data-stream-health]",
+    `${stream.networkType || "unknown"} • jitter ${stream.jitterMs ?? "—"}ms • loss ${stream.packetLossPct ?? "—"}%`
+  );
+
+  setText("[data-host-name]", host?.name || bootstrap?.host?.name || "Assigned host");
+  setText("[data-host-region]", host?.region || bootstrap?.host?.region || "—");
+  setText("[data-host-heartbeat]", host?.lastHeartbeatAt ? formatAgo(host.lastHeartbeatAt) : "Unknown");
+  setText("[data-host-status]", toTitle(host?.status || "online"));
 };
 
 const init = () => {
   initAuthShell();
 
   const game = getGameFromQuery();
+  const gameSlug = slugFromGameName(game);
+  const ticketId = getTicketFromQuery();
+
   appState.activeGame = game;
   appState.recentGame = game;
-  const gameSlug = slugFromGameName(game);
-  const profile = runtimeProfiles[gameSlug] || runtimeProfiles.default;
 
-  const gameNameEls = document.querySelectorAll("[data-game-name]");
-  gameNameEls.forEach((el) => {
-    el.textContent = game;
+  renderBaseMeta(game);
+  renderDisconnectedState("Checking launch ticket, session, and host availability...", "Checking");
+
+  const refresh = async () => {
+    try {
+      await loadLiveStatus(gameSlug, ticketId);
+    } catch (error) {
+      const statusCode = Number(error?.status || 0);
+      if (statusCode === 401) {
+        window.location.href = "./profile.html?reason=signin-required";
+        return;
+      }
+      if (statusCode === 503) {
+        renderDisconnectedState("Scheduler is temporarily unavailable. Retry in a few seconds.", "Degraded");
+        return;
+      }
+
+      renderDisconnectedState("Could not read live host/session status right now.", "Unavailable");
+      console.error(error);
+    }
+  };
+
+  const refreshButton = document.querySelector("[data-refresh-status]");
+  refreshButton?.addEventListener("click", () => {
+    refresh();
   });
 
-  const planEl = document.querySelector("[data-plan-name]");
-  if (planEl) {
-    planEl.textContent = toTitle(appState.selectedPlan);
-  }
-
-  const statusEl = document.querySelector("[data-session-status]");
-  if (statusEl) {
-    statusEl.textContent = "Live Session";
-  }
-
-  createRuntime(profile);
+  refresh();
+  setInterval(refresh, 10000);
 };
 
 init();

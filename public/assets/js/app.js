@@ -352,24 +352,12 @@ export const initLaunchModal = () => {
     const gameName = appState.activeGame || "Fortnite";
     const gameSlug = slugFromGame(gameName);
 
-    const launchLocalRuntime = (message = "Launching local runtime...") => {
+    const markLaunchUnavailable = (message = "Launch service unavailable") => {
       if (statusEl) {
         statusEl.textContent = message;
       }
-      if (queueEl) {
-        queueEl.textContent = "0";
-        updateQueueProgress(0);
-      }
       if (etaEl) {
-        etaEl.textContent = "Launching...";
-      }
-
-      if (!launchRedirected) {
-        launchRedirected = true;
-        const game = encodeURIComponent(gameName);
-        setTimeout(() => {
-          window.location.href = `./play.html?game=${game}`;
-        }, 500);
+        etaEl.textContent = "Unavailable";
       }
     };
 
@@ -408,7 +396,7 @@ export const initLaunchModal = () => {
         }
         const resolved = await pollUntilActive();
         if (!resolved) {
-          launchLocalRuntime("Queue took too long. Starting local runtime...");
+          markLaunchUnavailable("Queue is still pending. Keep waiting or try again.");
           return;
         }
         activeSession = resolved;
@@ -451,7 +439,7 @@ export const initLaunchModal = () => {
         return;
       }
 
-      launchLocalRuntime("Launch service unavailable. Starting local runtime...");
+      markLaunchUnavailable("Launch service unavailable. Check host connection and retry.");
       console.error(error);
     } finally {
       stopTracking();

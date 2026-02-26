@@ -58,7 +58,6 @@ NexForce/
 - Launch modal queue/latency/FPS simulation runs client-side.
 - When queue reaches launch state, the app transitions to `play.html` as the in-session surface.
 - Launch and play access now require sign-in (unauthenticated users are redirected to `profile.html`).
-- Rig control "Time Left" is intentionally hidden until the user presses the 🙏 unlock button on the left side of `play.html`.
 - Profile settings now include a **Streaming Transport** mode:
 	- `Auto` (prefers WebRTC when available)
 	- `Force WebRTC`
