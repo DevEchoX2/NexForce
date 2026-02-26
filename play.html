@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="NexForce in-session game player." />
+    <title>NexForce | Play</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script type="module" defer src="./assets/js/play.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+          <a href="./index.html" class="flex items-center gap-3">
+            <span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span>
+            <span class="text-xl font-bold tracking-wide">NexForce</span>
+          </a>
+          <nav class="hidden gap-8 md:flex">
+            <a href="./index.html" class="nav-link">Home</a>
+            <a href="./library.html" class="nav-link">Library</a>
+            <a href="./plans.html" class="nav-link">Plans</a>
+            <a href="./play.html" class="nav-link nav-link-active">Play</a>
+          </nav>
+          <div data-auth-shell class="flex items-center gap-2"></div>
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-7xl px-6 py-10 lg:px-8">
+        <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold">Now Playing: <span data-game-name>Fortnite</span></h1>
+            <p class="mt-2 text-sm text-soft">Launcher play surface.</p>
+          </div>
+          <div class="flex gap-2 text-xs">
+            <span class="rounded-full border border-white/15 bg-white/5 px-3 py-1">Plan: <strong data-plan-name class="text-white">Free</strong></span>
+            <span class="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-primary">Status: <strong data-session-status class="text-primary">Checking...</strong></span>
+          </div>
+        </div>
+
+        <section class="mx-auto max-w-3xl">
+          <div
+            data-play-surface
+            class="relative aspect-square overflow-hidden rounded-2xl border border-primary/30 bg-black/70"
+          >
+            <div
+              data-play-overlay
+              class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/55 p-6 text-center"
+            >
+              <p data-bootstrap-message class="max-w-md text-sm text-soft">
+                Enter fullscreen to start playing.
+              </p>
+              <button
+                data-enter-fullscreen
+                class="rounded-lg border border-primary/70 bg-primary px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
+              >
+                Enter Fullscreen
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

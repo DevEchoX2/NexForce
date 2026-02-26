@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Browse NexForce cloud game library." />
+    <title>NexForce | Library</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script type="module" defer src="./assets/js/library.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+          <a href="./index.html" class="flex items-center gap-3">
+            <span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span>
+            <span class="text-xl font-bold tracking-wide">NexForce</span>
+          </a>
+          <nav class="hidden gap-8 md:flex">
+            <a href="./index.html" class="nav-link">Home</a>
+            <a href="./library.html" class="nav-link nav-link-active">Library</a>
+            <a href="./plans.html" class="nav-link">Plans</a>
+            <a href="./profile.html" class="nav-link">Profile</a>
+          </nav>
+          <div data-auth-shell class="flex items-center gap-2"></div>
+        </div>
+      </header>
+
+      <main class="mx-auto max-w-7xl px-6 py-14 lg:px-8">
+        <div class="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold">Cloud Game Library</h1>
+            <p class="mt-2 text-soft">Data-driven catalog with search and plan filters.</p>
+          </div>
+          <span data-game-count class="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">0 Games Available</span>
+        </div>
+
+        <div class="mb-8 grid gap-3 md:grid-cols-3">
+          <input
+            data-search
+            type="text"
+            placeholder="Search game name or description"
+            class="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none ring-primary/40 placeholder:text-soft focus:ring"
+          />
+          <select data-genre-filter class="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none ring-primary/40 focus:ring"></select>
+          <select data-plan-filter class="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none ring-primary/40 focus:ring"></select>
+        </div>
+
+        <section data-games-grid class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4"></section>
+      </main>
+
+      <div data-launch-modal class="fixed inset-0 z-50 hidden bg-black/70 p-4">
+        <div class="mx-auto mt-20 max-w-lg rounded-2xl border border-white/15 bg-surface p-6 shadow-2xl">
+          <div class="mb-5 flex items-center justify-between">
+            <h3 class="text-xl font-bold">Launching <span data-launch-game>Cloud Session</span></h3>
+            <button data-close-launch class="rounded-lg border border-white/20 px-3 py-1 text-sm text-soft hover:text-white">Close</button>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Queue Position</p>
+              <p data-queue class="mt-1 text-2xl font-bold text-primary">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Estimated Start</p>
+              <p data-eta class="mt-1 text-2xl font-bold">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Network Latency</p>
+              <p data-latency class="mt-1 text-2xl font-bold">--</p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-soft">Stream FPS</p>
+              <p data-fps class="mt-1 text-2xl font-bold">--</p>
+            </div>
+          </div>
+          <p data-launch-status class="mt-4 text-sm text-soft">Waiting to start...</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
