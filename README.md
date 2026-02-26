@@ -282,6 +282,49 @@ Step 4 adds a runnable host daemon at `server/host-agent.js`:
 npm run host:agent
 ```
 
+### Host.md quick-connect flow (prep now, host later)
+
+1) Create local env files from templates:
+
+```bash
+cp .env.control.example .env.control
+cp .env.host-agent.example .env.host-agent
+```
+
+2) In `.env.control`, set strong shared keys (`NEXFORCE_HOST_KEY`, `NEXFORCE_ORCHESTRATOR_KEY`) and your public base URL.
+
+3) Start control API with that env loaded:
+
+```bash
+set -a && . ./.env.control && set +a && npm run serve:control
+```
+
+4) On the host PC, set `NEXFORCE_API_BASE_URL` in `.env.host-agent` to your live control API URL, keep the same `NEXFORCE_HOST_KEY`, then run:
+
+```bash
+set -a && . ./.env.host-agent && set +a && npm run host:agent
+```
+
+You can also run the host agent directly from env file using:
+
+```bash
+npm run host:agent:with-env
+```
+
+Host.md streaming presets are now available as one-command scripts:
+
+- Stable 1080p60 preset:
+
+```bash
+npm run host:agent:1080p60
+```
+
+- Better quality 1440p60 preset:
+
+```bash
+npm run host:agent:1440p60
+```
+
 ### Host agent environment variables
 
 - `NEXFORCE_API_BASE_URL` (default: `http://localhost:5500`)

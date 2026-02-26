@@ -10,6 +10,9 @@
     "serve:control": "NEXFORCE_ORCHESTRATOR_EMBEDDED=false node ./server/index.js",
     "serve:orchestrator": "node ./server/orchestrator/index.js",
     "host:agent": "node ./server/host-agent.js",
+    "host:agent:with-env": "set -a && . \"${NEXFORCE_AGENT_ENV_FILE:-.env.host-agent}\" && set +a && node ./server/host-agent.js",
+    "host:agent:1080p60": "NEXFORCE_AGENT_STREAM_RESOLUTION=1080p NEXFORCE_AGENT_STREAM_FPS=60 NEXFORCE_AGENT_STREAM_BITRATE_MBPS=20 NEXFORCE_AGENT_STREAM_CODEC=hevc NEXFORCE_AGENT_STREAM_SOFTWARE=sunshine NEXFORCE_AGENT_STREAM_PROTOCOL=moonlight NEXFORCE_AGENT_STREAM_REMOTE_NETWORK=tailscale NEXFORCE_AGENT_STREAM_BACKUP_CONTROL=parsec node ./server/host-agent.js",
+    "host:agent:1440p60": "NEXFORCE_AGENT_STREAM_RESOLUTION=1440p NEXFORCE_AGENT_STREAM_FPS=60 NEXFORCE_AGENT_STREAM_BITRATE_MBPS=35 NEXFORCE_AGENT_STREAM_CODEC=hevc NEXFORCE_AGENT_STREAM_SOFTWARE=sunshine NEXFORCE_AGENT_STREAM_PROTOCOL=moonlight NEXFORCE_AGENT_STREAM_REMOTE_NETWORK=tailscale NEXFORCE_AGENT_STREAM_BACKUP_CONTROL=parsec node ./server/host-agent.js",
     "serve:static": "cd public && python3 -m http.server 5500"
   },
   "dependencies": {
