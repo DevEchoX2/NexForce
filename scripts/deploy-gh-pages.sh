@@ -28,8 +28,8 @@ if grep -q "data-game-canvas" "$WORK_DIR/play.html"; then
   echo "warning: detected legacy runtime marker data-game-canvas in play.html"
 fi
 
-if ! grep -q "data-host-heartbeat" "$WORK_DIR/play.html"; then
-  echo "error: expected host status marker data-host-heartbeat is missing from play.html" >&2
+if ! grep -q "data-enter-fullscreen" "$WORK_DIR/play.html"; then
+  echo "error: expected fullscreen marker data-enter-fullscreen is missing from play.html" >&2
   exit 1
 fi
 
@@ -47,7 +47,7 @@ PRIMARY_URL="${VERIFY_BASE_URL}${VERIFY_PATH}&v=${STAMP}"
 PRIMARY_BODY="$(mktemp /tmp/nexforce-live-primary.XXXXXX.html)"
 
 curl -sSL "$PRIMARY_URL" -o "$PRIMARY_BODY"
-if grep -q "data-host-heartbeat" "$PRIMARY_BODY"; then
+if grep -q "data-enter-fullscreen" "$PRIMARY_BODY"; then
   echo "verified: $PRIMARY_URL"
 else
   echo "error: deploy verification failed for $PRIMARY_URL" >&2
@@ -58,7 +58,7 @@ if [[ -n "$CUSTOM_VERIFY_BASE_URL" ]]; then
   CUSTOM_URL="${CUSTOM_VERIFY_BASE_URL}${VERIFY_PATH}&v=${STAMP}"
   CUSTOM_BODY="$(mktemp /tmp/nexforce-live-custom.XXXXXX.html)"
   curl -sSL "$CUSTOM_URL" -o "$CUSTOM_BODY"
-  if grep -q "data-host-heartbeat" "$CUSTOM_BODY"; then
+  if grep -q "data-enter-fullscreen" "$CUSTOM_BODY"; then
     echo "verified: $CUSTOM_URL"
   else
     echo "warning: custom domain has not propagated yet: $CUSTOM_URL"
