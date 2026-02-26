@@ -1,4 +1,13 @@
-import { apiRequestWithSchedulerRecovery, appState, initAuthShell, isSchedulerUnavailableError, toTitle } from "./app.js";
+import {
+  apiRequestWithSchedulerRecovery,
+  appState,
+  getResolvedApiBase,
+  initAuthShell,
+  isApiConnectionFailure,
+  isSchedulerUnavailableError,
+  setApiBaseUrl,
+  toTitle
+} from "./app.js";
 
 const getGameFromQuery = () => {
   const params = new URLSearchParams(window.location.search);
@@ -136,6 +145,25 @@ const init = () => {
         setText("[data-session-status]", "Degraded");
         setText("[data-bootstrap-message]", "Rig service is temporarily unavailable. Retry shortly.");
         setText("[data-api-status]", "Scheduler unavailable");
+        return;
+      }
+
+      if (isApiConnectionFailure(error)) {
+        setText("[data-session-status]", "API Required");
+        setText("[data-bootstrap-message]", "Control API not connected. Set API URL to continue.");
+        const enteredApiBase = window.prompt(
+          "Enter your NexForce Control API URL (example: https://your-control-api.example.com)",
+          getResolvedApiBase()
+        );
+
+        if (enteredApiBase && String(enteredApiBase).trim()) {
+          setApiBaseUrl(String(enteredApiBase).trim());
+          setText("[data-api-status]", `Saved API: ${getResolvedApiBase()}`);
+          await refreshSessionState();
+          return;
+        }
+
+        setText("[data-api-status]", "Control API URL not set");
         return;
       }
 

@@ -263,6 +263,19 @@ export const setApiBaseUrl = (value) => {
 
 export const getResolvedApiBase = () => getApiBase();
 
+export const isApiConnectionFailure = (error) => {
+  const statusCode = Number(error?.status || 0);
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    statusCode === 0 ||
+    [404, 502, 503, 504].includes(statusCode) ||
+    message.includes("failed to fetch") ||
+    message.includes("service unavailable") ||
+    message.includes("request failed: 404") ||
+    message.includes("unexpected response format")
+  );
+};
+
 export const isSchedulerUnavailableError = (error) => {
   const statusCode = Number(error?.status || 0);
   const code = String(error?.payload?.code || "").toLowerCase();
@@ -376,6 +389,7 @@ export const initLaunchModal = () => {
   let intervalRef;
   let launchRedirected = false;
   let trackedSessionId = null;
+  let apiRepairAttempted = false;
 
   const stopSimulation = () => {
     if (intervalRef) {
@@ -533,7 +547,8 @@ export const initLaunchModal = () => {
         launchRedirected = true;
         const game = encodeURIComponent(gameName);
         const ticketId = encodeURIComponent(ticket.id || "");
-        window.location.href = `./play.html?game=${game}&ticket=${ticketId}`;
+        const apiBaseParam = encodeURIComponent(getResolvedApiBase());
+        window.location.href = `./play.html?game=${game}&ticket=${ticketId}&apiBase=${apiBaseParam}`;
       }
     } catch (error) {
       const statusCode = Number(error?.status || 0);
@@ -553,6 +568,27 @@ export const initLaunchModal = () => {
         return;
       }
 
+      if (!apiRepairAttempted && isApiConnectionFailure(error)) {
+        apiRepairAttempted = true;
+        if (statusEl) {
+          statusEl.textContent = "Control API not connected";
+        }
+
+        const enteredApiBase = window.prompt(
+          "Enter your NexForce Control API URL (example: https://your-control-api.example.com)",
+          getResolvedApiBase()
+        );
+
+        if (enteredApiBase && String(enteredApiBase).trim()) {
+          setApiBaseUrl(String(enteredApiBase).trim());
+          if (statusEl) {
+            statusEl.textContent = "Retrying with saved API URL...";
+          }
+          await runSimulation();
+          return;
+        }
+      }
+
       markLaunchUnavailable("Launch service unavailable. Check host connection and retry.");
       console.error(error);
     } finally {
@@ -564,6 +600,7 @@ export const initLaunchModal = () => {
     gameName.textContent = selectedGame;
     appState.recentGame = selectedGame;
     appState.activeGame = selectedGame;
+    apiRepairAttempted = false;
     modal.classList.remove("hidden");
     document.body.classList.add("overflow-hidden");
     runSimulation();
