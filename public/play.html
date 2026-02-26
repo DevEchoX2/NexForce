@@ -35,13 +35,13 @@
       <main class="mx-auto max-w-7xl px-6 py-10 lg:px-8">
         <aside
           data-rig-sidebar
-          class="fixed left-0 top-24 bottom-6 z-[9999] w-80 rounded-r-2xl border border-white/10 bg-slate-950/95 p-4 shadow-2xl backdrop-blur"
-          style="transform: translateX(calc(-100% + 3.5rem)); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);"
+          class="fixed left-3 top-1/2 z-[9999] w-72 -translate-y-1/2 rounded-[2rem] bg-slate-950/90 p-4 shadow-2xl backdrop-blur-lg"
+          style="transform: translateX(calc(-100% + 2.85rem)) translateY(-50%); transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);"
         >
           <button
             type="button"
             data-rig-unlock
-            class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-lg transition hover:border-primary/50 hover:bg-primary/10"
+            class="absolute -right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-900 px-3 py-3 text-lg shadow-xl transition hover:bg-slate-800"
             aria-label="Open rig control"
             title="Open rig control"
             aria-expanded="false"
@@ -49,37 +49,37 @@
             🙏
           </button>
 
-          <div class="mb-3 flex items-center justify-between pr-14">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-primary">Rig Control</h2>
-            <span data-rig-state class="rounded-full border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase text-primary">Ready</span>
+          <div class="mb-3 flex items-center justify-between pr-8">
+            <p class="text-xs font-semibold uppercase tracking-widest text-primary/90">Rig</p>
+            <span data-rig-state class="rounded-full bg-primary/15 px-2 py-1 text-[10px] font-semibold uppercase text-primary">Ready</span>
           </div>
 
-          <div class="rounded-xl border border-white/10 bg-black/40 p-3">
+          <div class="rounded-2xl bg-black/30 p-3">
             <p class="text-[11px] uppercase tracking-wide text-soft">Assigned Rig</p>
-            <p data-rig-name class="mt-1 text-lg font-semibold text-white">NexForce RTX Pod</p>
+            <p data-rig-name class="mt-1 text-base font-semibold text-white">NexForce RTX Pod</p>
             <p data-rig-region class="text-xs text-soft">Region: local</p>
           </div>
 
           <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2">
+            <div class="rounded-xl bg-white/5 p-2">
               <p class="text-soft">Active</p>
               <p data-rig-active class="mt-1 text-base font-semibold text-white">0</p>
             </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2">
+            <div class="rounded-xl bg-white/5 p-2">
               <p class="text-soft">Max Users</p>
               <p data-rig-max class="mt-1 text-base font-semibold text-white">40</p>
             </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2">
+            <div class="rounded-xl bg-white/5 p-2">
               <p class="text-soft">Available</p>
               <p data-rig-available class="mt-1 text-base font-semibold text-primary">40</p>
             </div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-2">
+            <div class="rounded-xl bg-white/5 p-2">
               <p class="text-soft">Load</p>
               <p data-rig-load class="mt-1 text-base font-semibold text-white">0%</p>
             </div>
           </div>
 
-          <div class="mt-3 rounded-lg border border-white/10 bg-white/5 p-2 text-xs">
+          <div class="mt-3 rounded-xl bg-white/5 p-2 text-xs">
             <p class="text-soft">Time Left</p>
             <p data-rig-time-left class="mt-1 text-base font-semibold text-white">Locked</p>
             <p data-rig-time-note class="mt-1 text-[11px] text-soft">Tap 🙏 to open panel and reveal hours/minutes.</p>

@@ -107,7 +107,9 @@ const initRigTimeUnlock = () => {
       return;
     }
 
-    rigSidebar.style.transform = rigSidebarOpen ? "translateX(0)" : "translateX(calc(-100% + 3.5rem))";
+    rigSidebar.style.transform = rigSidebarOpen
+      ? "translateX(0) translateY(-50%)"
+      : "translateX(calc(-100% + 2.85rem)) translateY(-50%)";
     unlockButton.setAttribute("aria-expanded", rigSidebarOpen ? "true" : "false");
   };
 
