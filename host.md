@@ -1,16 +1,34 @@
-# NexForce Host Guide (Single Host PC + Mobile Clients)
+# NexForce Host Guide (Primary Single Host + Mobile Clients)
 
-This project uses **one host machine only**: your colleague’s gaming PC. Everyone else just uses the site and plays from mobile clients.
+This project can run with **one host PC** (default) or scale to **3 host PCs**. Everyone else just uses the site and plays from mobile clients.
 
 ## Hosting model
 
-- Host machine: **1 Windows gaming PC** (colleague PC)
+- Host machine: **1 Windows gaming PC** (colleague PC) by default
 - Stream host software: **Sunshine**
 - Player clients: **Moonlight on phones**
 - Network layer: **Tailscale**
 - Backup remote admin: **Parsec**
 
 No distributed self-hosting for users. End users do not run host infrastructure.
+
+## Multi-host support (3 PCs)
+
+Yes, **3 host PCs work** with the current backend scheduler.
+
+For 3-PC mode:
+
+- Run one host agent process per PC.
+- Use a **unique** host ID and host name on each PC.
+- Keep the **same** `NEXFORCE_HOST_KEY` across all PCs.
+- Set each PC capacity based on hardware and bandwidth.
+- Keep each PC online with regular heartbeat updates.
+
+Suggested layout:
+
+- PC1: Premium-heavy games, higher capacity
+- PC2: Mixed queue load
+- PC3: Overflow/fallback capacity
 
 ## 1) Single host PC setup (colleague PC)
 
@@ -80,3 +98,10 @@ For competitive titles, controller or KB/M is recommended over touch.
 - [ ] Moonlight paired and tested from phone
 - [ ] Potato-phone preset verified (`720p30`, `4–8 Mbps`, `H.264`)
 - [ ] PC controls verified (controller or KB/M)
+
+Optional 3-host checklist:
+
+- [ ] PC1/PC2/PC3 each registered with unique host IDs
+- [ ] Shared `NEXFORCE_HOST_KEY` configured on all hosts
+- [ ] Capacity split configured per host
+- [ ] All three hosts visible with healthy heartbeats
