@@ -1,85 +1,82 @@
-# Low-Budget Game Streaming Host Guide
+# NexForce Host Guide (Single Host PC + Mobile Clients)
 
-Use this setup to run Roblox, Fall Guys, Fortnite, and Rocket League from your own gaming PC with low latency.
+This project uses **one host machine only**: your colleague’s gaming PC. Everyone else just uses the site and plays from mobile clients.
 
-## Best low-budget stack
+## Hosting model
 
-- Host: **Windows gaming PC**
-- Streaming host software: **Sunshine**
-- Streaming client: **Moonlight**
-- Remote networking: **Tailscale**
-- Backup remote desktop/control: **Parsec**
+- Host machine: **1 Windows gaming PC** (colleague PC)
+- Stream host software: **Sunshine**
+- Player clients: **Moonlight on phones**
+- Network layer: **Tailscale**
+- Backup remote admin: **Parsec**
 
-## 1) Host PC setup (Sunshine)
+No distributed self-hosting for users. End users do not run host infrastructure.
 
-- Install latest GPU drivers.
-- Install and sign in to:
+## 1) Single host PC setup (colleague PC)
+
+- Update GPU drivers.
+- Install/sign in to game launchers:
   - Epic Games Launcher (Fortnite, Fall Guys, Rocket League)
   - Roblox
 - Install Sunshine.
-- In Sunshine, set:
-  - Hardware encoder (`NVENC`/`AMF`/`QuickSync`)
-  - Start with `1080p 60fps`
-- Add launch targets in Sunshine:
-  - Desktop
-  - Epic Games Launcher
-  - Roblox Player (or browser shortcut)
-- Host PC recommendations:
-  - Wired Ethernet
-  - High-performance power mode
-  - Disable sleep while hosting
-
-## 2) Client setup (Moonlight)
-
-- Install Moonlight on your client device (phone/laptop/TV).
-- Pair with Sunshine (PIN pairing).
-- Start with these settings:
+- Sunshine baseline settings:
+  - Encoder: `NVENC` / `AMF` / `QuickSync`
   - Resolution: `1080p`
   - FPS: `60`
-  - Bitrate: `15–25 Mbps`
-  - HEVC: enabled (if supported)
+  - Bitrate: `12–20 Mbps`
+- Add Sunshine apps:
+  - Desktop
+  - Epic Games Launcher
+  - Roblox Player
+- Host reliability:
+  - Wired Ethernet
+  - High-performance power mode
+  - Disable sleep/hibernation while hosting
 
-## 3) Make it work remotely (no port-forward pain)
+## 2) Mobile-first client setup (potato phones supported)
 
-- Install Tailscale on host and client.
-- Log into the same tailnet account.
-- In Moonlight, connect to the host using its Tailscale IP.
+- Install Moonlight on Android/iOS.
+- Pair with Sunshine once using PIN.
+- Use this default for low-end phones:
+  - Resolution: `720p`
+  - FPS: `30`
+  - Bitrate: `4–8 Mbps`
+  - Codec: `H.264` (better compatibility on older devices)
 
-This avoids most NAT/port-forwarding issues and stays low-cost/free for personal use.
+If phone/network is stronger, increase gradually to `1080p60`.
 
-## 4) Where Parsec fits
+## 3) PC controls on mobile clients
 
-- Use Parsec for desktop/admin tasks and troubleshooting.
-- Use Moonlight for actual low-latency controller gameplay.
+Target UX is mobile device + PC-style controls:
 
-## Game-specific notes
+- Preferred: Bluetooth controller (Xbox/PS style)
+- Keyboard + mouse via OTG/Bluetooth where supported
+- Moonlight on-screen controls only as fallback
 
-- **Fortnite / Fall Guys / Rocket League**:
-  - Launch from Epic on host, then stream via Moonlight.
-- **Roblox**:
-  - Launch on host desktop and stream it.
-  - Some Roblox experiences may need mouse-lock/fullscreen tweaking.
-- Anti-cheat titles generally work better on your **own physical PC** than low-end cloud VMs.
+For competitive titles, controller or KB/M is recommended over touch.
 
-## Free / low-cost tools
+## 4) Networking (no port-forward pain)
 
-- Sunshine + Moonlight: free
-- Tailscale: free tier
-- Parsec: free personal tier
-- Optional launcher UI: Playnite (free)
+- Install Tailscale on:
+  - colleague host PC
+  - mobile client devices
+- Use same tailnet.
+- Connect Moonlight to host via Tailscale IP.
 
-## Quick presets
+## 5) Parsec usage
 
-### Stable 1080p60 preset
+- Use Parsec only for admin/troubleshooting on the host PC.
+- Gameplay path remains Sunshine → Moonlight.
 
-- FPS: `60`
-- Bitrate: `20 Mbps`
-- Codec: `HEVC` (or `H.264` if compatibility issues)
-- V-Sync: Off on host game if latency is priority
+## 6) Game launch notes
 
-### Better quality 1440p60 preset
+- Fortnite / Fall Guys / Rocket League: launch from Epic on host, then stream.
+- Roblox: launch on host desktop and stream.
 
-- FPS: `60`
-- Bitrate: `30–45 Mbps`
-- Codec: `HEVC`
-- Requires stronger upload and stable Wi-Fi 6 or Ethernet
+## 7) Finish-state checklist
+
+- [ ] One host PC online in Sunshine
+- [ ] Tailscale connected on host + phone
+- [ ] Moonlight paired and tested from phone
+- [ ] Potato-phone preset verified (`720p30`, `4–8 Mbps`, `H.264`)
+- [ ] PC controls verified (controller or KB/M)
