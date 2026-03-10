@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Launch Rocket League on NexForce cloud player." />
+    <title>NexForce | Rocket League</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./assets/css/main.css" />
+    <script type="module" defer src="./assets/js/game-page.js"></script>
+  </head>
+  <body class="bg-black text-white antialiased" data-game-title="Rocket League" data-game-slug="rocket-league" data-game-genre="Sports" data-game-platform="PC" data-game-min-plan="performance" data-game-image="./assets/images/rocketleague.jpeg" data-game-description="Launch Rocket League sessions with hosted queue routing and fullscreen-ready player handoff.">
+    <div class="site-bg min-h-screen">
+      <header class="border-b border-white/10 backdrop-blur-sm"><div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8"><a href="./index.html" class="flex items-center gap-3"><span class="inline-block h-3 w-3 rounded-full bg-primary shadow-glow"></span><span class="text-xl font-bold tracking-wide">NexForce</span></a><nav class="hidden gap-8 md:flex"><a href="./index.html" class="nav-link">Home</a><a href="./library.html" class="nav-link nav-link-active">Library</a><a href="./plans.html" class="nav-link">Plans</a><a href="./profile.html" class="nav-link">Profile</a></nav><div data-auth-shell class="flex items-center gap-2"></div></div></header>
+      <main class="mx-auto grid max-w-7xl gap-8 px-6 py-12 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
+        <section>
+          <p class="inline-flex rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">Hosted Game Page</p>
+          <h1 class="mt-4 text-4xl font-extrabold"><span data-game-title>Rocket League</span></h1>
+          <p data-game-description class="mt-4 max-w-2xl text-base text-soft"></p>
+          <div class="mt-5 flex flex-wrap gap-2 text-xs"><span class="rounded-full border border-white/15 bg-white/5 px-3 py-1">Genre: <strong data-game-genre class="text-white"></strong></span><span class="rounded-full border border-white/15 bg-white/5 px-3 py-1">Platform: <strong data-game-platform class="text-white"></strong></span><span class="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-primary">Min Plan: <strong data-game-min-plan class="text-primary"></strong></span></div>
+          <div class="mt-8 flex flex-wrap gap-3"><button data-open-launch data-game="Rocket League" class="rounded-xl bg-primary px-6 py-3 text-sm font-bold text-black transition hover:brightness-110">Launch Session</button><a data-open-player href="./play.html?game=Rocket%20League" class="rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Open Player</a><a href="./library.html" class="rounded-xl border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Back to Library</a></div>
+        </section>
+        <aside class="glass-card p-4"><img data-game-image src="./assets/images/rocketleague.jpeg" alt="Rocket League preview" class="h-64 w-full rounded-xl border border-white/10 bg-black/40 object-cover" /><p class="mt-4 text-sm text-soft">Dedicated game route for hosted rollout. This page feeds the same launcher/player flow used across NexForce.</p></aside>
+      </main>
+      <div data-launch-modal class="fixed inset-0 z-50 hidden bg-black/70 p-4"><div class="mx-auto mt-20 max-w-lg rounded-2xl border border-white/15 bg-surface p-6 shadow-2xl"><div class="mb-5 flex items-center justify-between"><h3 class="text-xl font-bold">Launching <span data-launch-game>Cloud Session</span></h3><button data-close-launch class="rounded-lg border border-white/20 px-3 py-1 text-sm text-soft hover:text-white">Close</button></div><div class="grid gap-3 sm:grid-cols-2"><div class="rounded-xl border border-white/10 bg-white/5 p-4"><p class="text-xs text-soft">Queue Position</p><p data-queue class="mt-1 text-2xl font-bold text-primary">--</p></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><p class="text-xs text-soft">Estimated Start</p><p data-eta class="mt-1 text-2xl font-bold">--</p></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><p class="text-xs text-soft">Network Latency</p><p data-latency class="mt-1 text-2xl font-bold">--</p></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><p class="text-xs text-soft">Stream FPS</p><p data-fps class="mt-1 text-2xl font-bold">--</p></div></div><p data-launch-status class="mt-4 text-sm text-soft">Waiting to start...</p></div></div>
+    </div>
+  </body>
+</html>

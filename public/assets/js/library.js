@@ -56,6 +56,12 @@ const renderGames = (games) => {
         >
           Launch
         </button>
+        <a
+          href="./${game.slug}.html"
+          class="mt-2 block w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-center text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
+        >
+          Open ${game.title} Page
+        </a>
       </article>
     `
     )
