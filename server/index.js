@@ -31,6 +31,11 @@ const SESSION_RECONNECT_GRACE_MS = Number(process.env.SESSION_RECONNECT_GRACE_MS
 const HOST_HEARTBEAT_TIMEOUT_MS = Number(process.env.HOST_HEARTBEAT_TIMEOUT_MS || 45000);
 const MATCHMAKER_TICK_MS = Number(process.env.MATCHMAKER_TICK_MS || 5000);
 const SCHEDULER_EVENT_LIMIT = Number(process.env.SCHEDULER_EVENT_LIMIT || 500);
+const LAUNCHER_QUEUE_MIN_POSITION = Number(process.env.NEXFORCE_LAUNCHER_QUEUE_MIN_POSITION || 6);
+const LAUNCHER_QUEUE_MAX_POSITION = Number(process.env.NEXFORCE_LAUNCHER_QUEUE_MAX_POSITION || 22);
+const LAUNCHER_QUEUE_MIN_WAIT_SEC = Number(process.env.NEXFORCE_LAUNCHER_QUEUE_MIN_WAIT_SEC || 20);
+const LAUNCHER_QUEUE_MAX_WAIT_SEC = Number(process.env.NEXFORCE_LAUNCHER_QUEUE_MAX_WAIT_SEC || 75);
+const LAUNCHER_QUEUE_TICKET_TTL_MIN = Number(process.env.NEXFORCE_LAUNCHER_QUEUE_TICKET_TTL_MIN || 45);
 const ORCHESTRATOR_KEY = process.env.NEXFORCE_ORCHESTRATOR_KEY || "nexforce-orchestrator-key";
 const ORCHESTRATOR_EMBEDDED = (process.env.NEXFORCE_ORCHESTRATOR_EMBEDDED || "true").toLowerCase() !== "false";
 const DEFAULT_RIG_CAPACITY = Number(process.env.NEXFORCE_DEFAULT_RIG_CAPACITY || 40);
@@ -246,6 +251,14 @@ const issueAuthSession = (db, userId) => {
 const asNonNegativeInt = (value, fallback = 0) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const asPositiveInt = (value, fallback = 1) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
   }
   return Math.floor(parsed);
@@ -824,6 +837,108 @@ const withSessionRuntime = (session, nowMs = Date.now()) => {
     maxDurationSec: Math.floor(maxDurationMs / 1000),
     remainingSec: remainingMs === null ? null : Math.floor(remainingMs / 1000),
     reconnectRemainingSec: reconnectRemainingMs === null ? null : Math.floor(reconnectRemainingMs / 1000)
+  };
+};
+
+const randomIntBetween = (min, max) => {
+  const lower = Math.min(min, max);
+  const upper = Math.max(min, max);
+  return Math.floor(Math.random() * (upper - lower + 1)) + lower;
+};
+
+const getLauncherQueueConfig = () => {
+  const minPosition = asPositiveInt(LAUNCHER_QUEUE_MIN_POSITION, 6);
+  const maxPosition = Math.max(minPosition, asPositiveInt(LAUNCHER_QUEUE_MAX_POSITION, 22));
+  const minWaitSec = asPositiveInt(LAUNCHER_QUEUE_MIN_WAIT_SEC, 20);
+  const maxWaitSec = Math.max(minWaitSec, asPositiveInt(LAUNCHER_QUEUE_MAX_WAIT_SEC, 75));
+  const ticketTtlMs = asPositiveInt(LAUNCHER_QUEUE_TICKET_TTL_MIN, 45) * 60 * 1000;
+
+  return {
+    minPosition,
+    maxPosition,
+    minWaitSec,
+    maxWaitSec,
+    ticketTtlMs
+  };
+};
+
+const cleanupLauncherQueueTickets = (db, nowMs = Date.now()) => {
+  if (!Array.isArray(db.launcherQueueTickets)) {
+    db.launcherQueueTickets = [];
+    return true;
+  }
+
+  const { ticketTtlMs } = getLauncherQueueConfig();
+  const beforeCount = db.launcherQueueTickets.length;
+
+  db.launcherQueueTickets = db.launcherQueueTickets.filter((ticket) => {
+    const createdAtMs = ticket?.createdAt ? new Date(ticket.createdAt).getTime() : Number.NaN;
+    if (!Number.isFinite(createdAtMs)) {
+      return false;
+    }
+
+    const launchedAtMs = ticket?.launchedAt ? new Date(ticket.launchedAt).getTime() : Number.NaN;
+    const referenceTimeMs = Number.isFinite(launchedAtMs) ? launchedAtMs : createdAtMs;
+    return nowMs - referenceTimeMs <= ticketTtlMs;
+  });
+
+  return db.launcherQueueTickets.length !== beforeCount;
+};
+
+const buildLauncherQueueState = (ticket, nowMs = Date.now()) => {
+  const createdAtMs = ticket?.createdAt ? new Date(ticket.createdAt).getTime() : nowMs;
+  const readyAtMs = ticket?.readyAt ? new Date(ticket.readyAt).getTime() : nowMs;
+  const totalWaitSec = Math.max(1, Math.ceil((readyAtMs - createdAtMs) / 1000));
+  const remainingSec = Math.max(0, Math.ceil((readyAtMs - nowMs) / 1000));
+  const elapsedSec = Math.max(0, totalWaitSec - remainingSec);
+
+  const stepEverySec = Math.max(2, Math.ceil(totalWaitSec / Math.max(1, (ticket.initialPosition || 1) - 1)));
+  const advancedSlots = Math.floor(elapsedSec / stepEverySec);
+  const queuePosition = remainingSec === 0 ? 1 : Math.max(1, (ticket.initialPosition || 1) - advancedSlots);
+
+  const launched = Boolean(ticket.launchedAt);
+  const ready = !launched && remainingSec === 0;
+  const status = launched ? "launched" : ready ? "ready" : "queued";
+
+  return {
+    status,
+    queuePosition: launched ? 0 : queuePosition,
+    etaSec: launched ? 0 : remainingSec,
+    canLaunch: ready || launched
+  };
+};
+
+const findOpenLauncherQueueTicket = (db, userId, gameSlug) => {
+  if (!Array.isArray(db.launcherQueueTickets)) {
+    return null;
+  }
+
+  const matches = db.launcherQueueTickets.filter(
+    (ticket) => ticket.userId === userId && ticket.gameSlug === gameSlug && !ticket.launchedAt
+  );
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return matches.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] || null;
+};
+
+const createLauncherQueueTicket = ({ userId, gameSlug, gameTitle, plan }, nowMs = Date.now()) => {
+  const { minPosition, maxPosition, minWaitSec, maxWaitSec } = getLauncherQueueConfig();
+  const initialPosition = randomIntBetween(minPosition, maxPosition);
+  const waitSec = randomIntBetween(minWaitSec, maxWaitSec);
+
+  return {
+    id: `lq_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+    userId,
+    gameSlug,
+    gameTitle,
+    plan,
+    initialPosition,
+    createdAt: new Date(nowMs).toISOString(),
+    readyAt: new Date(nowMs + waitSec * 1000).toISOString(),
+    launchedAt: null
   };
 };
 
@@ -2456,6 +2571,146 @@ app.put("/api/profile/plan", authMiddleware, (req, res) => {
   writeDb(db);
 
   res.json(getUserSettings(db, req.auth.user.id));
+});
+
+app.post("/api/launcher/queue/join", authMiddleware, sessionRateLimiter, (req, res) => {
+  const { gameSlug } = req.body || {};
+  if (!gameSlug) {
+    return res.status(400).json({ error: "gameSlug is required" });
+  }
+
+  const db = readDb();
+  const nowMs = Date.now();
+  let changed = cleanupLauncherQueueTickets(db, nowMs);
+
+  const game = db.games.find((entry) => entry.slug === gameSlug);
+  if (!game) {
+    if (changed) {
+      writeDb(db);
+    }
+    return res.status(404).json({ error: "Game not found" });
+  }
+
+  const settings = getUserSettings(db, req.auth.user.id);
+  if (!canAccessGame(settings.selectedPlan, game.minPlan)) {
+    if (changed) {
+      writeDb(db);
+    }
+    return res.status(403).json({
+      error: "Plan upgrade required",
+      requiredPlan: game.minPlan,
+      selectedPlan: settings.selectedPlan
+    });
+  }
+
+  const existing = findOpenLauncherQueueTicket(db, req.auth.user.id, game.slug);
+  if (existing) {
+    const queue = buildLauncherQueueState(existing, nowMs);
+    if (changed) {
+      writeDb(db);
+    }
+    return res.json({
+      ticketId: existing.id,
+      gameSlug: existing.gameSlug,
+      gameTitle: existing.gameTitle,
+      ...queue
+    });
+  }
+
+  const ticket = createLauncherQueueTicket(
+    {
+      userId: req.auth.user.id,
+      gameSlug: game.slug,
+      gameTitle: game.title,
+      plan: settings.selectedPlan
+    },
+    nowMs
+  );
+
+  db.launcherQueueTickets.push(ticket);
+  changed = true;
+
+  if (changed) {
+    writeDb(db);
+  }
+
+  const queue = buildLauncherQueueState(ticket, nowMs);
+  return res.status(201).json({
+    ticketId: ticket.id,
+    gameSlug: ticket.gameSlug,
+    gameTitle: ticket.gameTitle,
+    ...queue
+  });
+});
+
+app.get("/api/launcher/queue/:ticketId", authMiddleware, sessionRateLimiter, (req, res) => {
+  const { ticketId } = req.params;
+  const db = readDb();
+  const nowMs = Date.now();
+  const changed = cleanupLauncherQueueTickets(db, nowMs);
+
+  const ticket = db.launcherQueueTickets.find((entry) => entry.id === ticketId && entry.userId === req.auth.user.id);
+  if (!ticket) {
+    if (changed) {
+      writeDb(db);
+    }
+    return res.status(404).json({ error: "Queue ticket not found" });
+  }
+
+  if (changed) {
+    writeDb(db);
+  }
+
+  const queue = buildLauncherQueueState(ticket, nowMs);
+  return res.json({
+    ticketId: ticket.id,
+    gameSlug: ticket.gameSlug,
+    gameTitle: ticket.gameTitle,
+    ...queue
+  });
+});
+
+app.post("/api/launcher/queue/:ticketId/launch", authMiddleware, sessionRateLimiter, (req, res) => {
+  const { ticketId } = req.params;
+  const db = readDb();
+  const nowMs = Date.now();
+  let changed = cleanupLauncherQueueTickets(db, nowMs);
+
+  const ticket = db.launcherQueueTickets.find((entry) => entry.id === ticketId && entry.userId === req.auth.user.id);
+  if (!ticket) {
+    if (changed) {
+      writeDb(db);
+    }
+    return res.status(404).json({ error: "Queue ticket not found" });
+  }
+
+  const queue = buildLauncherQueueState(ticket, nowMs);
+  if (!queue.canLaunch) {
+    if (changed) {
+      writeDb(db);
+    }
+    return res.status(409).json({
+      error: "Queue is not ready",
+      ...queue
+    });
+  }
+
+  if (!ticket.launchedAt) {
+    ticket.launchedAt = new Date(nowMs).toISOString();
+    changed = true;
+  }
+
+  if (changed) {
+    writeDb(db);
+  }
+
+  return res.json({
+    success: true,
+    ticketId: ticket.id,
+    gameSlug: ticket.gameSlug,
+    gameTitle: ticket.gameTitle,
+    playUrl: `/play.html?game=${encodeURIComponent(ticket.gameTitle)}`
+  });
 });
 
 app.post("/api/sessions/request", authMiddleware, requireSchedulerAvailable, sessionRateLimiter, (req, res) => {

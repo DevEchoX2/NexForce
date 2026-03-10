@@ -386,14 +386,48 @@ export const initLaunchModal = () => {
   const adsCountEl = modal.querySelector("[data-rig-ads-count]");
   const statusEl = modal.querySelector("[data-launch-status]");
 
-  let intervalRef;
-  let launchRedirected = false;
+  let launchReadyButton = modal.querySelector("[data-launch-ready]");
+  if (!launchReadyButton && statusEl?.parentElement) {
+    launchReadyButton = document.createElement("button");
+    launchReadyButton.setAttribute("data-launch-ready", "");
+    launchReadyButton.disabled = true;
+    launchReadyButton.className =
+      "mt-4 hidden w-full rounded-lg border border-primary/70 bg-primary/80 px-4 py-2 text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-60";
+    launchReadyButton.textContent = "Enter Game";
+    statusEl.insertAdjacentElement("afterend", launchReadyButton);
+  }
 
-  const stopSimulation = () => {
-    if (intervalRef) {
-      clearInterval(intervalRef);
-      intervalRef = undefined;
+  let pollRef;
+  let flowId = 0;
+  let pollInFlight = false;
+  let launchRedirected = false;
+  let activeTicketId = "";
+  let activeGame = appState.activeGame || "Fortnite";
+  let initialQueuePosition = null;
+  let canLaunch = false;
+
+  const stopPolling = () => {
+    if (pollRef) {
+      clearInterval(pollRef);
+      pollRef = undefined;
     }
+    pollInFlight = false;
+  };
+
+  const setStatus = (message) => {
+    if (statusEl) {
+      statusEl.textContent = message;
+    }
+  };
+
+  const setLaunchButtonState = (ready) => {
+    canLaunch = Boolean(ready);
+    if (!launchReadyButton) {
+      return;
+    }
+
+    launchReadyButton.classList.toggle("hidden", !canLaunch);
+    launchReadyButton.disabled = !canLaunch;
   };
 
   const updateQueueProgress = (queueCount) => {
@@ -402,81 +436,228 @@ export const initLaunchModal = () => {
     }
 
     const parsed = Number(queueCount);
-    const pct = Number.isFinite(parsed) ? Math.max(10, Math.min(95, Math.floor(parsed * 2.8))) : 88;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      queueBarEl.style.width = "10%";
+      return;
+    }
+
+    if (initialQueuePosition === null || parsed > initialQueuePosition) {
+      initialQueuePosition = parsed;
+    }
+
+    const start = Math.max(2, Number(initialQueuePosition) || parsed);
+    const normalized = parsed <= 1 ? 100 : ((start - parsed) / (start - 1)) * 100;
+    const pct = Math.max(10, Math.min(100, Math.round(normalized)));
     queueBarEl.style.width = `${pct}%`;
   };
 
-  const runSimulation = () => {
-    const selectedPlan = appState.selectedPlan;
-    let queue = selectedPlan === "ultimate" ? 6 : selectedPlan === "performance" ? 12 : 20;
-    let eta = Math.ceil(queue / 3);
-    latencyEl.textContent = selectedPlan === "ultimate" ? "12 ms" : selectedPlan === "performance" ? "18 ms" : "26 ms";
-    fpsEl.textContent = selectedPlan === "ultimate" ? "132 FPS" : selectedPlan === "performance" ? "112 FPS" : "88 FPS";
+  const formatEta = (etaSec) => {
+    const value = Number(etaSec);
+    if (!Number.isFinite(value) || value <= 0) {
+      return "Ready";
+    }
 
-    queueEl.textContent = String(queue);
-    updateQueueProgress(queue);
-    etaEl.textContent = `${eta} min`;
+    const minutes = Math.ceil(value / 60);
+    return `${Math.max(1, minutes)} min`;
+  };
+
+  const applyPlanTelemetry = () => {
+    const selectedPlan = appState.selectedPlan;
+    if (latencyEl) {
+      latencyEl.textContent = selectedPlan === "ultimate" ? "12 ms" : selectedPlan === "performance" ? "18 ms" : "26 ms";
+    }
+    if (fpsEl) {
+      fpsEl.textContent = selectedPlan === "ultimate" ? "132 FPS" : selectedPlan === "performance" ? "112 FPS" : "88 FPS";
+    }
     if (adsCountEl) {
       adsCountEl.textContent = "15";
     }
-    if (statusEl) {
-      statusEl.textContent = "Connecting...";
+  };
+
+  const applyQueueState = (state) => {
+    const queuePosition = Number(state?.queuePosition);
+    const etaSec = Number(state?.etaSec);
+    const status = String(state?.status || "queued");
+    const ready = Boolean(state?.canLaunch);
+
+    if (queueEl) {
+      queueEl.textContent = Number.isFinite(queuePosition)
+        ? String(Math.max(1, status === "launched" ? 0 : queuePosition))
+        : "--";
+    }
+    updateQueueProgress(queuePosition);
+
+    if (etaEl) {
+      etaEl.textContent = status === "launched" ? "Started" : formatEta(etaSec);
     }
 
-    stopSimulation();
+    if (status === "launched") {
+      setStatus("Session started.");
+      setLaunchButtonState(false);
+      return;
+    }
+
+    if (ready) {
+      setStatus("Queue complete. Press Enter Game.");
+      setLaunchButtonState(true);
+      return;
+    }
+
+    setStatus("Queued. Holding your spot...");
+    setLaunchButtonState(false);
+  };
+
+  const startPolling = (currentFlowId) => {
+    stopPolling();
+
+    pollRef = setInterval(async () => {
+      if (pollInFlight || !activeTicketId || launchRedirected) {
+        return;
+      }
+
+      pollInFlight = true;
+
+      try {
+        const nextState = await apiRequest(`/api/launcher/queue/${encodeURIComponent(activeTicketId)}`, {
+          auth: true
+        });
+
+        if (flowId !== currentFlowId || modal.classList.contains("hidden")) {
+          return;
+        }
+
+        applyQueueState(nextState);
+        if (nextState?.canLaunch) {
+          stopPolling();
+        }
+      } catch (error) {
+        if (flowId !== currentFlowId || modal.classList.contains("hidden")) {
+          return;
+        }
+
+        if (error?.status === 404) {
+          stopPolling();
+          setStatus("Queue ticket expired. Please relaunch.");
+          setLaunchButtonState(false);
+        } else if (error?.status === 401) {
+          stopPolling();
+          setStatus("Sign in required to continue queueing.");
+          setLaunchButtonState(false);
+        } else {
+          setStatus("Reconnecting to queue...");
+        }
+      } finally {
+        pollInFlight = false;
+      }
+    }, 2000);
+  };
+
+  const startQueueFlow = async (selectedGame, currentFlowId) => {
+    activeTicketId = "";
+    initialQueuePosition = null;
     launchRedirected = false;
-    const gameName = appState.activeGame || "Fortnite";
+    setLaunchButtonState(false);
+    setStatus("Joining queue...");
 
-    const redirectToPlayer = (message = "Starting player...") => {
-      if (statusEl) {
-        statusEl.textContent = message;
+    applyPlanTelemetry();
+
+    if (queueEl) {
+      queueEl.textContent = "--";
+    }
+    if (etaEl) {
+      etaEl.textContent = "--";
+    }
+    updateQueueProgress(null);
+
+    const resolvedGame = selectedGame && selectedGame !== "Cloud Session" ? selectedGame : appState.activeGame || "Fortnite";
+    const gameSlug = slugFromGame(resolvedGame);
+
+    try {
+      const queueState = await apiRequest("/api/launcher/queue/join", {
+        method: "POST",
+        auth: true,
+        body: { gameSlug }
+      });
+
+      if (flowId !== currentFlowId || modal.classList.contains("hidden")) {
+        return;
       }
 
-      if (!launchRedirected) {
-        launchRedirected = true;
-        const game = encodeURIComponent(gameName);
-        window.location.href = `./play.html?game=${game}`;
-      }
-    };
+      activeTicketId = String(queueState.ticketId || "");
+      applyQueueState(queueState);
 
-    intervalRef = setInterval(() => {
-      const step = selectedPlan === "ultimate" ? 3 : selectedPlan === "performance" ? 2 : 1;
-      queue = Math.max(0, queue - step);
-      eta = Math.max(0, Math.ceil(queue / 3));
-
-      if (queueEl) {
-        queueEl.textContent = String(queue);
+      if (!queueState?.canLaunch) {
+        startPolling(currentFlowId);
       }
-      updateQueueProgress(queue);
-      if (etaEl) {
-        etaEl.textContent = queue <= 1 ? "Launching..." : `${Math.max(1, eta)} min`;
+    } catch (error) {
+      if (flowId !== currentFlowId || modal.classList.contains("hidden")) {
+        return;
       }
 
-      if (statusEl) {
-        statusEl.textContent = queue <= 1 ? "Launching player..." : "Queued";
+      if (error?.status === 401) {
+        setStatus("Sign in required before joining queue.");
+      } else if (error?.status === 403 && error?.payload?.requiredPlan) {
+        setStatus(`Upgrade required: ${toTitle(String(error.payload.requiredPlan))} plan.`);
+      } else {
+        setStatus(error?.message || "Unable to join queue right now.");
       }
 
-      if (queue <= 1) {
-        stopSimulation();
-        redirectToPlayer("Opening game player...");
-      }
-    }, 900);
+      setLaunchButtonState(false);
+    }
   };
 
   const openModal = (selectedGame = "Cloud Session") => {
-    gameName.textContent = selectedGame;
-    appState.recentGame = selectedGame;
-    appState.activeGame = selectedGame;
+    const resolvedGame = selectedGame && selectedGame !== "Cloud Session" ? selectedGame : appState.activeGame || "Fortnite";
+    activeGame = resolvedGame;
+    gameName.textContent = resolvedGame;
+    appState.recentGame = resolvedGame;
+    appState.activeGame = resolvedGame;
+
+    flowId += 1;
     modal.classList.remove("hidden");
     document.body.classList.add("overflow-hidden");
-    runSimulation();
+    startQueueFlow(resolvedGame, flowId);
   };
 
   const closeModal = () => {
+    flowId += 1;
     modal.classList.add("hidden");
     document.body.classList.remove("overflow-hidden");
-    stopSimulation();
+    stopPolling();
+    activeTicketId = "";
+    setLaunchButtonState(false);
   };
+
+  launchReadyButton?.addEventListener("click", async () => {
+    if (!canLaunch || !activeTicketId || launchRedirected) {
+      return;
+    }
+
+    launchReadyButton.disabled = true;
+    setStatus("Starting cloud session...");
+
+    try {
+      const response = await apiRequest(`/api/launcher/queue/${encodeURIComponent(activeTicketId)}/launch`, {
+        method: "POST",
+        auth: true
+      });
+
+      launchRedirected = true;
+      setStatus("Opening game player...");
+      const game = encodeURIComponent(response?.gameTitle || activeGame || "Cloud Session");
+      window.location.href = `./play.html?game=${game}`;
+    } catch (error) {
+      if (error?.status === 409) {
+        applyQueueState(error?.payload || {});
+      } else if (error?.status === 401) {
+        setStatus("Sign in required to launch.");
+      } else {
+        setStatus(error?.message || "Unable to launch session right now.");
+      }
+
+      launchReadyButton.disabled = !canLaunch;
+    }
+  });
 
   closeButtons.forEach((button) => {
     button.addEventListener("click", closeModal);

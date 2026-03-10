@@ -122,6 +122,7 @@ const defaultDb = {
   },
   schedulerEvents: [],
   sessionQueue: [],
+  launcherQueueTickets: [],
   sessions: [],
   plans: [
     {
@@ -308,6 +309,25 @@ const normalizeDb = (data) => {
 
   if (!Array.isArray(normalized.sessionQueue)) {
     normalized.sessionQueue = [];
+  }
+
+  if (!Array.isArray(normalized.launcherQueueTickets)) {
+    normalized.launcherQueueTickets = [];
+  } else {
+    normalized.launcherQueueTickets = normalized.launcherQueueTickets
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => ({
+        id: typeof entry.id === "string" ? entry.id : null,
+        userId: typeof entry.userId === "string" ? entry.userId : null,
+        gameSlug: typeof entry.gameSlug === "string" ? entry.gameSlug : null,
+        gameTitle: typeof entry.gameTitle === "string" ? entry.gameTitle : null,
+        plan: typeof entry.plan === "string" ? entry.plan : "free",
+        initialPosition: Number.isFinite(Number(entry.initialPosition)) ? Math.max(1, Math.floor(Number(entry.initialPosition))) : 1,
+        createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString(),
+        readyAt: typeof entry.readyAt === "string" ? entry.readyAt : new Date().toISOString(),
+        launchedAt: typeof entry.launchedAt === "string" ? entry.launchedAt : null
+      }))
+      .filter((entry) => entry.id && entry.userId && entry.gameSlug && entry.gameTitle);
   }
 
   if (!normalized.schedulerPolicy || typeof normalized.schedulerPolicy !== "object") {
