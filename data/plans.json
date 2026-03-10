@@ -1,0 +1,41 @@
+[
+  {
+    "id": "free",
+    "name": "Free",
+    "description": "Queue-based sessions for casual play.",
+    "monthly": "$0",
+    "yearly": "$0",
+    "features": [
+      "Up to 30-minute sessions",
+      "Standard queue",
+      "1080p up to 60 FPS"
+    ],
+    "recommended": false
+  },
+  {
+    "id": "performance",
+    "name": "Performance",
+    "description": "Lower latency and priority access.",
+    "monthly": "$9.99/mo",
+    "yearly": "$99/yr",
+    "features": [
+      "Up to 6-hour sessions",
+      "Priority queue",
+      "1440p up to 120 FPS"
+    ],
+    "recommended": true
+  },
+  {
+    "id": "ultimate",
+    "name": "Ultimate",
+    "description": "Best cloud rigs and max quality stream.",
+    "monthly": "$19.99/mo",
+    "yearly": "$199/yr",
+    "features": [
+      "Up to 8-hour sessions",
+      "Fastest queue tier",
+      "4K up to 120 FPS"
+    ],
+    "recommended": false
+  }
+]

@@ -1,0 +1,63 @@
+import {
+  appState,
+  initAuthShell,
+  initLaunchButtons,
+  initLaunchModal,
+  loadJson,
+  toTitle
+} from "./app.js";
+
+const renderFeaturedGames = (games) => {
+  const container = document.querySelector("[data-featured-games]");
+  if (!container) {
+    return;
+  }
+
+  const featuredGames = games.filter((game) => game.featured);
+  container.innerHTML = featuredGames
+    .map(
+      (game) => `
+      <article class="game-card">
+        ${
+          game.image
+            ? `<img src="${game.image}" alt="${game.title}" class="h-32 w-full rounded-xl border border-white/10 bg-black/30 object-cover" />`
+            : `<div class="h-32 rounded-xl border border-dashed border-white/20 bg-black/30"></div>`
+        }
+        <h3 class="mt-3 text-base font-semibold">${game.title}</h3>
+        <p class="mt-1 text-xs text-soft">${game.genre} • ${game.platform}</p>
+        <button data-open-launch data-game="${game.title}" class="mt-3 w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-black transition hover:brightness-110">
+          Launch
+        </button>
+        <a href="./${game.slug}.html" class="mt-2 block w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-center text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10">
+          Open ${game.title} Page
+        </a>
+      </article>
+    `
+    )
+    .join("");
+};
+
+const hydrateHeroState = () => {
+  const selectedPlan = document.querySelector("[data-selected-plan]");
+  const recentGame = document.querySelector("[data-recent-game]");
+  if (selectedPlan) {
+    selectedPlan.textContent = toTitle(appState.selectedPlan);
+  }
+  if (recentGame) {
+    recentGame.textContent = appState.recentGame;
+  }
+};
+
+const init = async () => {
+  initAuthShell();
+  const launch = initLaunchModal();
+
+  const games = await loadJson("./data/games.json");
+  renderFeaturedGames(games);
+  hydrateHeroState();
+  initLaunchButtons(launch.openModal);
+};
+
+init().catch((error) => {
+  console.error(error);
+});
