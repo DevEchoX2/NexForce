@@ -67,28 +67,16 @@
             </div>
           </div>
 
-          <aside class="glass-card p-5">
-            <h2 class="text-lg font-semibold">Session Controls</h2>
-            <p class="mt-2 text-sm text-soft">This is the live player shell used during hosted sessions.</p>
-
-            <div class="mt-4 space-y-3 text-xs">
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <p class="font-semibold text-white">Mobile + PC Controls</p>
-                <p class="mt-1 text-soft">Use Bluetooth controller or keyboard/mouse over OTG when possible.</p>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <p class="font-semibold text-white">Low-End Phone Preset</p>
-                <p class="mt-1 text-soft">Recommended baseline: 720p, 30 FPS, 4-8 Mbps, H.264.</p>
-              </div>
-              <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-                <p class="font-semibold text-white">Hosting Notes</p>
-                <p class="mt-1 text-soft">Works with one host PC or multi-host setup during rollout.</p>
-              </div>
-            </div>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-              <a href="./library.html" class="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Open Library</a>
-              <a href="./geforce.html" class="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/10">Host Pages</a>
+          <aside class="glass-card flex flex-col justify-center p-5">
+            <div class="rounded-xl border border-white/10 bg-black/30 p-5 text-center">
+              <h2 class="text-lg font-semibold">Player Box</h2>
+              <p class="mt-2 text-sm text-soft">Use one button to start or resume in fullscreen.</p>
+              <button
+                data-enter-fullscreen
+                class="mt-5 w-full rounded-lg border border-primary/70 bg-primary px-4 py-3 text-sm font-semibold text-black transition hover:brightness-110"
+              >
+                Play / Fullscreen
+              </button>
             </div>
           </aside>
         </section>

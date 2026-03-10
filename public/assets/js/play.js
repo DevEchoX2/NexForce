@@ -9,7 +9,7 @@ const initPlayerSurface = () => {
   const surface = document.querySelector("[data-play-surface]");
   const overlay = document.querySelector("[data-play-overlay]");
   const messageEl = document.querySelector("[data-bootstrap-message]");
-  const fullscreenButton = document.querySelector("[data-enter-fullscreen]");
+  const fullscreenButtons = Array.from(document.querySelectorAll("[data-enter-fullscreen]"));
 
   if (!surface) {
     return;
@@ -28,6 +28,12 @@ const initPlayerSurface = () => {
     }
   };
 
+  const setButtonLabel = (label) => {
+    fullscreenButtons.forEach((button) => {
+      button.textContent = label;
+    });
+  };
+
   const start = async () => {
     if (!document.fullscreenElement && surface.requestFullscreen) {
       try {
@@ -42,13 +48,13 @@ const initPlayerSurface = () => {
     if (overlay) {
       overlay.classList.add("hidden");
     }
-    if (fullscreenButton) {
-      fullscreenButton.textContent = "Playing";
-    }
+    setButtonLabel("Playing");
   };
 
-  fullscreenButton?.addEventListener("click", () => {
-    start();
+  fullscreenButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      start();
+    });
   });
 
   document.addEventListener("fullscreenchange", () => {
@@ -59,14 +65,13 @@ const initPlayerSurface = () => {
         overlay.classList.remove("hidden");
       }
       setMessage("Paused. Enter fullscreen to resume.");
-      if (fullscreenButton) {
-        fullscreenButton.textContent = "Enter Fullscreen";
-      }
+      setButtonLabel("Play / Fullscreen");
     }
   });
 
   setStatus("Ready");
   setMessage("Enter fullscreen and press the button to play.");
+  setButtonLabel("Play / Fullscreen");
 };
 
 const init = () => {
