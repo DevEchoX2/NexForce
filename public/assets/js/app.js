@@ -222,6 +222,12 @@ const slugFromGame = (name = "") =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
 
+const randomInt = (min, max) => {
+  const low = Math.min(min, max);
+  const high = Math.max(min, max);
+  return Math.floor(Math.random() * (high - low + 1)) + low;
+};
+
 const normalizeApiBase = (value) => String(value || "").trim().replace(/\/+$/, "");
 
 const getApiBaseFromQuery = () => {
@@ -398,6 +404,7 @@ export const initLaunchModal = () => {
   }
 
   let pollRef;
+  let localQueueRef;
   let flowId = 0;
   let pollInFlight = false;
   let launchRedirected = false;
@@ -405,6 +412,8 @@ export const initLaunchModal = () => {
   let activeGame = appState.activeGame || "Fortnite";
   let initialQueuePosition = null;
   let canLaunch = false;
+  let usingLocalQueue = false;
+  let lastQueueState = null;
 
   const stopPolling = () => {
     if (pollRef) {
@@ -412,6 +421,13 @@ export const initLaunchModal = () => {
       pollRef = undefined;
     }
     pollInFlight = false;
+  };
+
+  const stopLocalQueue = () => {
+    if (localQueueRef) {
+      clearInterval(localQueueRef);
+      localQueueRef = undefined;
+    }
   };
 
   const setStatus = (message) => {
@@ -480,6 +496,13 @@ export const initLaunchModal = () => {
     const status = String(state?.status || "queued");
     const ready = Boolean(state?.canLaunch);
 
+    lastQueueState = {
+      queuePosition: Number.isFinite(queuePosition) ? queuePosition : null,
+      etaSec: Number.isFinite(etaSec) ? etaSec : null,
+      status,
+      canLaunch: ready
+    };
+
     if (queueEl) {
       queueEl.textContent = Number.isFinite(queuePosition)
         ? String(Math.max(1, status === "launched" ? 0 : queuePosition))
@@ -505,6 +528,73 @@ export const initLaunchModal = () => {
 
     setStatus("Queued. Holding your spot...");
     setLaunchButtonState(false);
+  };
+
+  const startLocalQueueFlow = ({ queuePosition = null, etaSec = null } = {}) => {
+    stopPolling();
+    stopLocalQueue();
+
+    usingLocalQueue = true;
+    activeTicketId = "";
+    launchRedirected = false;
+    setLaunchButtonState(false);
+
+    const fallbackPosition = Number.isFinite(Number(queuePosition))
+      ? Math.max(2, Math.floor(Number(queuePosition)))
+      : randomInt(6, 22);
+
+    const fallbackEtaSec = Number.isFinite(Number(etaSec))
+      ? Math.max(8, Math.ceil(Number(etaSec)))
+      : randomInt(20, 75);
+
+    const totalWaitSec = fallbackEtaSec;
+    let remainingSec = fallbackEtaSec;
+
+    initialQueuePosition = fallbackPosition;
+
+    const render = () => {
+      const elapsedSec = Math.max(0, totalWaitSec - remainingSec);
+      const stepEverySec = Math.max(2, Math.ceil(totalWaitSec / Math.max(1, fallbackPosition - 1)));
+      const advancedSlots = Math.floor(elapsedSec / stepEverySec);
+      const position = remainingSec === 0 ? 1 : Math.max(1, fallbackPosition - advancedSlots);
+
+      if (queueEl) {
+        queueEl.textContent = String(position);
+      }
+      if (etaEl) {
+        etaEl.textContent = remainingSec === 0 ? "Ready" : formatEta(remainingSec);
+      }
+      updateQueueProgress(position);
+      lastQueueState = {
+        queuePosition: position,
+        etaSec: remainingSec,
+        status: remainingSec === 0 ? "ready" : "queued",
+        canLaunch: remainingSec === 0
+      };
+
+      if (remainingSec === 0) {
+        stopLocalQueue();
+        setStatus("Queue complete. Press Enter Game.");
+        setLaunchButtonState(true);
+        return;
+      }
+
+      setStatus("Queued. Holding your spot...");
+      setLaunchButtonState(false);
+    };
+
+    render();
+    localQueueRef = setInterval(() => {
+      remainingSec = Math.max(0, remainingSec - 1);
+      render();
+    }, 1000);
+  };
+
+  const redirectToPlayer = (gameTitle) => {
+    launchRedirected = true;
+    setStatus("Opening game player...");
+    const game = encodeURIComponent(gameTitle || activeGame || "Cloud Session");
+    window.location.href = `./play.html?game=${game}`;
   };
 
   const startPolling = (currentFlowId) => {
@@ -535,6 +625,14 @@ export const initLaunchModal = () => {
           return;
         }
 
+        if (isApiConnectionFailure(error)) {
+          startLocalQueueFlow({
+            queuePosition: lastQueueState?.queuePosition,
+            etaSec: lastQueueState?.etaSec
+          });
+          return;
+        }
+
         if (error?.status === 404) {
           stopPolling();
           setStatus("Queue ticket expired. Please relaunch.");
@@ -553,8 +651,11 @@ export const initLaunchModal = () => {
   };
 
   const startQueueFlow = async (selectedGame, currentFlowId) => {
+    stopLocalQueue();
+    usingLocalQueue = false;
     activeTicketId = "";
     initialQueuePosition = null;
+    lastQueueState = null;
     launchRedirected = false;
     setLaunchButtonState(false);
     setStatus("Joining queue...");
@@ -594,6 +695,11 @@ export const initLaunchModal = () => {
         return;
       }
 
+      if (isApiConnectionFailure(error)) {
+        startLocalQueueFlow();
+        return;
+      }
+
       if (error?.status === 401) {
         setStatus("Sign in required before joining queue.");
       } else if (error?.status === 403 && error?.payload?.requiredPlan) {
@@ -624,12 +730,17 @@ export const initLaunchModal = () => {
     modal.classList.add("hidden");
     document.body.classList.remove("overflow-hidden");
     stopPolling();
+    stopLocalQueue();
     activeTicketId = "";
+    usingLocalQueue = false;
     setLaunchButtonState(false);
   };
 
   launchReadyButton?.addEventListener("click", async () => {
     if (!canLaunch || !activeTicketId || launchRedirected) {
+      if (canLaunch && usingLocalQueue && !launchRedirected) {
+        redirectToPlayer(activeGame);
+      }
       return;
     }
 
@@ -642,11 +753,17 @@ export const initLaunchModal = () => {
         auth: true
       });
 
-      launchRedirected = true;
-      setStatus("Opening game player...");
-      const game = encodeURIComponent(response?.gameTitle || activeGame || "Cloud Session");
-      window.location.href = `./play.html?game=${game}`;
+      redirectToPlayer(response?.gameTitle);
     } catch (error) {
+      if (isApiConnectionFailure(error)) {
+        startLocalQueueFlow({
+          queuePosition: lastQueueState?.queuePosition,
+          etaSec: Math.max(3, Number(lastQueueState?.etaSec || 0))
+        });
+        launchReadyButton.disabled = !canLaunch;
+        return;
+      }
+
       if (error?.status === 409) {
         applyQueueState(error?.payload || {});
       } else if (error?.status === 401) {
